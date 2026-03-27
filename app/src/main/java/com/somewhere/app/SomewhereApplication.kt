@@ -20,7 +20,7 @@ class SomewhereApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         CoroutineScope(Dispatchers.IO).launch {
-            repository.cleanupOrphanImages()
+            repository.cleanupOrphanMedia()
         }
     }
 }

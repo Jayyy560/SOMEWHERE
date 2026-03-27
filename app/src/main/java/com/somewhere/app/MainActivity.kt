@@ -5,13 +5,19 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.rememberNavController
+import com.somewhere.app.data.remote.SupabaseManager
+import com.somewhere.app.ui.screen.AuthScreen
 import com.somewhere.app.ui.navigation.SomewhereNavGraph
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.ui.theme.SomewhereTheme
 import dagger.hilt.android.AndroidEntryPoint
+import io.github.jan.supabase.gotrue.SessionStatus
+import io.github.jan.supabase.gotrue.auth
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -24,8 +30,14 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = SomewhereColors.Background
                 ) {
-                    val navController = rememberNavController()
-                    SomewhereNavGraph(navController = navController)
+                    val sessionStatus by SupabaseManager.client.auth.sessionStatus
+                        .collectAsState(initial = SessionStatus.NotAuthenticated(false))
+                    if (sessionStatus is SessionStatus.Authenticated) {
+                        val navController = rememberNavController()
+                        SomewhereNavGraph(navController = navController)
+                    } else {
+                        AuthScreen()
+                    }
                 }
             }
         }
