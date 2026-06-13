@@ -115,7 +115,7 @@ fun FindSpotScreen(
                             ) {
                                 Text(
                                     text = "$currentScore%",
-                                    color = Color.White,
+                                    color = if (currentScore > 60) Color.Black else Color.White,
                                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
                                 )
                             }
