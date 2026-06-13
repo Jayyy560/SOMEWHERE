@@ -149,16 +149,23 @@ class DropRepository(
         radiusMeters: Float = LocationUtils.DISCOVERY_RADIUS,
         maxItems: Int = LocationUtils.MAX_VISIBLE
     ): List<Pair<Drop, Float>> {
-        val wipeTimestamp = sharedPrefs.getLong(WIPE_TIMESTAMP_KEY, 0L)
+        // Hardcode fallback wipe to June 14, 2026 to permanently hide all old hackathon ghost drops
+        // on fresh app installs where sharedPrefs are empty.
+        val fallbackWipe = 1718323200000L 
+        val storedWipe = sharedPrefs.getLong(WIPE_TIMESTAMP_KEY, 0L)
+        val wipeTimestamp = if (storedWipe > fallbackWipe) storedWipe else fallbackWipe
         
         val remote = runCatching {
             fetchRemoteDropsNear(lat, lon, radiusMeters, maxItems)
-        }.getOrNull()?.filter { it.first.timestamp >= wipeTimestamp }
+        }.getOrNull()?.filter { it.first.timestamp >= wipeTimestamp } ?: emptyList()
 
-        if (!remote.isNullOrEmpty()) return remote
-
-        return getLocalDropsNear(lat, lon, radiusMeters, maxItems)
+        val local = getLocalDropsNear(lat, lon, radiusMeters, maxItems)
             .filter { it.first.timestamp >= wipeTimestamp }
+
+        return (remote + local)
+            .distinctBy { it.first.id }
+            .sortedBy { it.second }
+            .take(maxItems)
     }
 
     suspend fun startRealtimeDrops() {
