@@ -55,6 +55,7 @@ import com.somewhere.app.viewmodel.DiscoveryViewModel
  */
 @Composable
 fun DiscoveryScreen(
+    onFindSpot: (String) -> Unit = {},
     viewModel: DiscoveryViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
@@ -328,10 +329,12 @@ fun DiscoveryScreen(
             // Detail overlay — shown when a drop is selected
             uiState.selectedDrop?.let { selected ->
                 DropDetailSheet(
-                    item = selected,
+                    drop = selected.drop,
+                    distanceMeters = selected.distanceMeters,
                     onDismiss = { viewModel.selectDrop(null) },
                     onDelete = { viewModel.deleteDrop(selected) },
-                    onReport = { viewModel.reportDrop(selected) }
+                    onReport = { viewModel.reportDrop(selected) },
+                    onFindSpot = onFindSpot
                 )
             }
 

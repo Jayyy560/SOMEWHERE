@@ -23,6 +23,8 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.jsonPrimitive
+import io.github.jan.supabase.gotrue.auth
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.time.Instant
@@ -36,6 +38,9 @@ class DropRepository(
     private val context: Context,
     private val dao: DropDao
 ) {
+    private val sharedPrefs = context.getSharedPreferences("somewhere_prefs", Context.MODE_PRIVATE)
+    private val WIPE_TIMESTAMP_KEY = "wipe_timestamp"
+
 
     private val dropChangeEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val dropChanges: SharedFlow<Unit> = dropChangeEvents.asSharedFlow()
@@ -56,13 +61,19 @@ class DropRepository(
             uploadAudioAndGetPublicUrl(Uri.parse(path))
         }
 
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull()
+        val authorName = currentUser?.userMetadata?.get("name")?.jsonPrimitive?.content
+        val authorAvatarUrl = currentUser?.userMetadata?.get("avatar_url")?.jsonPrimitive?.content
+
         SupabaseManager.client.from("drops").insert(
             DropInsert(
                 text = text,
                 imageUrl = uploadedImageUrl,
                 audioUrl = uploadedAudioUrl,
                 latitude = latitude,
-                longitude = longitude
+                longitude = longitude,
+                authorName = authorName,
+                authorAvatarUrl = authorAvatarUrl
             )
         )
 
@@ -73,25 +84,51 @@ class DropRepository(
             audioPath = uploadedAudioUrl ?: normalizedAudioPath,
             latitude = latitude,
             longitude = longitude,
-            timestamp = System.currentTimeMillis()
+            timestamp = System.currentTimeMillis(),
+            authorName = authorName,
+            authorAvatarUrl = authorAvatarUrl
         )
         dao.insert(drop)
         return drop
     }
 
     suspend fun deleteDrop(drop: Drop) {
+        // Delete locally
         dao.deleteById(drop.id)
         deleteLocalFileIfPresent(drop.imagePath)
         drop.audioPath?.let { deleteLocalFileIfPresent(it) }
+        
+        // Delete remotely
+        runCatching {
+            SupabaseManager.client.from("drops").delete {
+                filter { eq("id", drop.id) }
+            }
+        }
     }
 
     suspend fun deleteAllDrops() {
         val existing = dao.getAllOnce()
+        
+        // Delete locally
         dao.deleteAll()
         existing.forEach {
             deleteLocalFileIfPresent(it.imagePath)
             it.audioPath?.let { path -> deleteLocalFileIfPresent(path) }
         }
+        
+        // Delete remotely for current user
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull()
+        val authorName = currentUser?.userMetadata?.get("name")?.jsonPrimitive?.content
+        if (authorName != null) {
+            runCatching {
+                SupabaseManager.client.from("drops").delete {
+                    filter { eq("author_name", authorName) }
+                }
+            }
+        }
+        
+        // Save wipe timestamp to hide ghost remote drops that RLS prevented us from deleting
+        sharedPrefs.edit().putLong(WIPE_TIMESTAMP_KEY, System.currentTimeMillis()).apply()
     }
 
     fun deleteLocalImage(path: String) {
@@ -112,13 +149,16 @@ class DropRepository(
         radiusMeters: Float = LocationUtils.DISCOVERY_RADIUS,
         maxItems: Int = LocationUtils.MAX_VISIBLE
     ): List<Pair<Drop, Float>> {
+        val wipeTimestamp = sharedPrefs.getLong(WIPE_TIMESTAMP_KEY, 0L)
+        
         val remote = runCatching {
             fetchRemoteDropsNear(lat, lon, radiusMeters, maxItems)
-        }.getOrNull()
+        }.getOrNull()?.filter { it.first.timestamp >= wipeTimestamp }
 
-        if (remote != null) return remote
+        if (!remote.isNullOrEmpty()) return remote
 
         return getLocalDropsNear(lat, lon, radiusMeters, maxItems)
+            .filter { it.first.timestamp >= wipeTimestamp }
     }
 
     suspend fun startRealtimeDrops() {
@@ -242,7 +282,8 @@ class DropRepository(
                     audioPath = remote.audioUrl,
                     latitude = remote.latitude,
                     longitude = remote.longitude,
-                    timestamp = parseTimestamp(remote.createdAt)
+                    timestamp = parseTimestamp(remote.createdAt),
+                    authorName = remote.authorName
                 )
 
                 val dist = remote.distanceMeters?.toFloat()

@@ -74,6 +74,18 @@ fun AuthScreen(
 
         Spacer(Modifier.height(24.dp))
 
+        if (uiState.mode == AuthViewModel.Mode.SIGN_UP) {
+            OutlinedTextField(
+                value = uiState.name,
+                onValueChange = viewModel::onNameChanged,
+                label = { Text("Name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.height(12.dp))
+        }
+
         OutlinedTextField(
             value = uiState.email,
             onValueChange = viewModel::onEmailChanged,

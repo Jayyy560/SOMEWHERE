@@ -10,10 +10,22 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.stateIn
+import com.somewhere.app.data.model.Drop
+
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val repository: DropRepository
 ) : ViewModel() {
+
+    val myDrops: StateFlow<List<Drop>> = repository.allDrops
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
 
     data class SettingsUiState(
         val isClearing: Boolean = false,

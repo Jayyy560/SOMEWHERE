@@ -9,6 +9,9 @@ import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.storage.Storage
 import io.github.jan.supabase.gotrue.auth
 
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+
 object SupabaseManager {
     val client by lazy {
         createSupabaseClient(
@@ -29,10 +32,11 @@ object SupabaseManager {
         }
     }
 
-    suspend fun signUpWithEmail(email: String, password: String) {
+    suspend fun signUpWithEmail(name: String, email: String, password: String) {
         client.auth.signUpWith(Email) {
             this.email = email
             this.password = password
+            this.data = buildJsonObject { put("name", name) }
         }
     }
 }

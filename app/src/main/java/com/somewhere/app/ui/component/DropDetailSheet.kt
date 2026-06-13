@@ -22,6 +22,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Report
@@ -37,15 +40,17 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.somewhere.app.R
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.util.LocationUtils
 import com.somewhere.app.util.rememberReduceMotionEnabled
-import com.somewhere.app.viewmodel.DiscoveredDrop
+import com.somewhere.app.data.model.Drop
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
@@ -54,17 +59,17 @@ import kotlin.math.sin
 import kotlinx.coroutines.launch
 
 /**
- * Expanded detail view for a discovered drop.
- * Animates in from overlay → center with dimmed backdrop.
- * Premium design: rounded image with gradient overlay, drag handle,
+ * Bottom sheet displaying the full content of a drop.
  * better typography, redesigned waveform, subtle action buttons.
  */
 @Composable
 fun DropDetailSheet(
-    item: DiscoveredDrop,
+    drop: Drop,
+    distanceMeters: Float? = null,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
-    onReport: () -> Unit
+    onReport: () -> Unit,
+    onFindSpot: (String) -> Unit = {}
 ) {
     var expanded by remember { mutableStateOf(false) }
     val reduceMotion = rememberReduceMotionEnabled()
@@ -168,7 +173,7 @@ fun DropDetailSheet(
             ) {
                 val context = LocalContext.current
                 AsyncImage(
-                    model = item.drop.imageUrl,
+                    model = drop.imageUrl,
                     contentDescription = "Drop photo",
                     modifier = Modifier
                         .fillMaxWidth()
@@ -216,9 +221,9 @@ fun DropDetailSheet(
             Spacer(Modifier.height(20.dp))
 
             // Message text
-            if (item.drop.text.isNotBlank()) {
+            if (drop.text.isNotBlank()) {
                 Text(
-                    text = item.drop.text,
+                    text = drop.text,
                     style = MaterialTheme.typography.bodyLarge.copy(
                         fontWeight = FontWeight.Medium,
                         lineHeight = 24.sp
@@ -232,8 +237,62 @@ fun DropDetailSheet(
                 Spacer(Modifier.height(12.dp))
             }
 
+            // Author Name
+            if (!drop.authorName.isNullOrBlank()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val avatarUrl = drop.authorAvatarUrl
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(SomewhereColors.Card),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (avatarUrl == "default_female") {
+                            androidx.compose.foundation.Image(
+                                painter = painterResource(R.drawable.default_female_avatar),
+                                contentDescription = "Avatar",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else if (avatarUrl == "default_male" || avatarUrl == null) {
+                            androidx.compose.foundation.Image(
+                                painter = painterResource(R.drawable.default_male_avatar),
+                                contentDescription = "Avatar",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            AsyncImage(
+                                model = avatarUrl,
+                                contentDescription = "Avatar",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.width(8.dp))
+                    
+                    Text(
+                        text = "Dropped by ${drop.authorName}",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontWeight = FontWeight.Medium
+                        ),
+                        color = SomewhereColors.TextSecondary
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
+
             // Audio player
-            if (!item.drop.audioPath.isNullOrBlank()) {
+            if (!drop.audioPath.isNullOrBlank()) {
                 val context = LocalContext.current
                 Row(
                     modifier = Modifier
@@ -259,7 +318,7 @@ fun DropDetailSheet(
                             } else {
                                 player = playAudio(
                                     context = context,
-                                    path = item.drop.audioPath,
+                                    path = drop.audioPath,
                                     onComplete = {
                                         isAudioPlaying = false
                                         player = null
@@ -327,13 +386,23 @@ fun DropDetailSheet(
                         modifier = Modifier.size(14.dp),
                         tint = SomewhereColors.GlowAccent
                     )
-                    Text(
-                        text = LocationUtils.formatDistance(item.distanceMeters),
-                        style = MaterialTheme.typography.bodySmall.copy(
-                            fontWeight = FontWeight.Medium
-                        ),
-                        color = SomewhereColors.TextSecondary
-                    )
+                    if (distanceMeters != null) {
+                        Text(
+                            text = LocationUtils.formatDistance(distanceMeters),
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = SomewhereColors.TextSecondary
+                        )
+                    } else {
+                        Text(
+                            text = "Here",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = SomewhereColors.TextSecondary
+                        )
+                    }
                 }
 
                 // Timestamp with icon
@@ -348,7 +417,7 @@ fun DropDetailSheet(
                         tint = SomewhereColors.TextMuted
                     )
                     Text(
-                        text = formatTimestamp(item.drop.timestamp),
+                        text = formatTimestamp(drop.timestamp),
                         style = MaterialTheme.typography.bodySmall,
                         color = SomewhereColors.TextSecondary
                     )
@@ -409,6 +478,25 @@ fun DropDetailSheet(
                         modifier = Modifier.size(18.dp),
                         tint = SomewhereColors.TextMuted
                     )
+                }
+            }
+            
+            if (drop.imageUrl != null) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                        .padding(bottom = 16.dp)
+                ) {
+                    Button(
+                        onClick = { onFindSpot(drop.imageUrl) },
+                        colors = ButtonDefaults.buttonColors(containerColor = SomewhereColors.GlassBackground),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.CameraAlt, contentDescription = null, tint = SomewhereColors.TextPrimary)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Find Exact Spot", color = SomewhereColors.TextPrimary)
+                    }
                 }
             }
 

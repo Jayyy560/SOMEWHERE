@@ -10,15 +10,23 @@ import com.somewhere.app.ui.screen.DiscoveryScreen
 import com.somewhere.app.ui.screen.DropScreen
 import com.somewhere.app.ui.screen.HomeScreen
 import com.somewhere.app.ui.screen.SettingsScreen
+import com.somewhere.app.ui.screen.ProfileScreen
+import com.somewhere.app.ui.screen.FindSpotScreen
 
 /**
  * Navigation routes for the app.
  */
-object Routes {
+object NavDestinations {
     const val HOME = "home"
-    const val DROP = "drop"
+    const val CREATE_DROP = "create_drop"
     const val DISCOVERY = "discovery"
     const val SETTINGS = "settings"
+    const val PROFILE = "profile"
+    const val FIND_SPOT = "find_spot/{imageUrl}"
+    
+    fun createFindSpotRoute(imageUrl: String): String {
+        return "find_spot/${java.net.URLEncoder.encode(imageUrl, "UTF-8")}"
+    }
 }
 
 private const val TRANSITION_DURATION = 350
@@ -30,7 +38,7 @@ private const val TRANSITION_DURATION = 350
 fun SomewhereNavGraph(navController: NavHostController) {
     NavHost(
         navController = navController,
-        startDestination = Routes.HOME,
+        startDestination = NavDestinations.HOME,
         enterTransition = {
             slideInHorizontally(
                 initialOffsetX = { fullWidth -> fullWidth },
@@ -56,28 +64,50 @@ fun SomewhereNavGraph(navController: NavHostController) {
             ) + fadeOut(animationSpec = tween(TRANSITION_DURATION))
         }
     ) {
-        composable(Routes.HOME) {
+        composable(NavDestinations.HOME) {
             HomeScreen(
-                onExplore = { navController.navigate(Routes.DISCOVERY) },
-                onDrop = { navController.navigate(Routes.DROP) },
-                onSettings = { navController.navigate(Routes.SETTINGS) }
+                onExplore = { navController.navigate(NavDestinations.DISCOVERY) },
+                onDrop = { navController.navigate(NavDestinations.CREATE_DROP) },
+                onSettings = { navController.navigate(NavDestinations.SETTINGS) },
+                onProfile = { navController.navigate(NavDestinations.PROFILE) }
             )
         }
 
-        composable(Routes.DROP) {
+        composable(NavDestinations.CREATE_DROP) {
             DropScreen(
                 onComplete = {
-                    navController.popBackStack(Routes.HOME, inclusive = false)
+                    navController.popBackStack(NavDestinations.HOME, inclusive = false)
                 }
             )
         }
 
-        composable(Routes.DISCOVERY) {
-            DiscoveryScreen()
+        composable(NavDestinations.DISCOVERY) {
+            DiscoveryScreen(
+                onFindSpot = { imageUrl ->
+                    navController.navigate(NavDestinations.createFindSpotRoute(imageUrl))
+                }
+            )
         }
 
-        composable(Routes.SETTINGS) {
-            SettingsScreen(onBack = { navController.popBackStack() })
+        composable(NavDestinations.SETTINGS) {
+            SettingsScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(NavDestinations.PROFILE) {
+            ProfileScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+        
+        composable(NavDestinations.FIND_SPOT) { backStackEntry ->
+            val encodedUrl = backStackEntry.arguments?.getString("imageUrl") ?: ""
+            val imageUrl = java.net.URLDecoder.decode(encodedUrl, "UTF-8")
+            FindSpotScreen(
+                originalImageUrl = imageUrl,
+                onBack = { navController.popBackStack() }
+            )
         }
     }
 }

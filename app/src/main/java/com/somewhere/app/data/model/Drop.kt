@@ -15,7 +15,9 @@ data class Drop(
     val audioPath: String? = null,
     val latitude: Double,
     val longitude: Double,
-    val timestamp: Long
+    val timestamp: Long,
+    val authorName: String? = null,
+    val authorAvatarUrl: String? = null
 ) {
     val imageUrl: String
         get() = if (imagePath.startsWith("/")) {

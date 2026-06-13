@@ -208,7 +208,7 @@ class DiscoveryViewModel @Inject constructor(
     }
 
     fun clearSummary() {
-        _uiState.value = _uiState.value.copy(summaryText = null)
+        _uiState.value = _uiState.value.copy(summaryText = null, isSummarizing = false)
     }
 
     fun curateDrop() {
@@ -236,7 +236,7 @@ class DiscoveryViewModel @Inject constructor(
     }
 
     fun clearCuratedDrop() {
-        _uiState.value = _uiState.value.copy(curatedDrop = null)
+        _uiState.value = _uiState.value.copy(curatedDrop = null, isCurating = false)
     }
 
     private fun fetchNearbyDrops(lat: Double, lon: Double) {
@@ -261,18 +261,8 @@ class DiscoveryViewModel @Inject constructor(
                 )
             }
 
-            // Hysteresis: keep previously visible drops even if they drifted
-            // slightly beyond discovery radius (up to HYSTERESIS_MARGIN extra)
-            val currentIds = discovered.map { it.drop.id }.toSet()
-            val retained = _uiState.value.nearbyDrops
-                .filter { existing ->
-                    existing.drop.id in previousIds &&
-                    existing.drop.id !in currentIds &&
-                    existing.distanceMeters <= LocationUtils.DISCOVERY_RADIUS + HYSTERESIS_MARGIN
-                }
-                .map { it.copy(isNewlyDiscovered = false) }
-
-            val merged = (discovered + retained)
+            val merged = discovered
+                .distinctBy { it.drop.id }
                 .sortedBy { it.distanceMeters }
                 .take(LocationUtils.MAX_VISIBLE)
 

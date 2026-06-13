@@ -20,6 +20,7 @@ class AuthViewModel @Inject constructor() : ViewModel() {
     }
 
     data class AuthUiState(
+        val name: String = "",
         val email: String = "",
         val password: String = "",
         val mode: Mode = Mode.SIGN_IN,
@@ -29,6 +30,10 @@ class AuthViewModel @Inject constructor() : ViewModel() {
 
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
+
+    fun onNameChanged(value: String) {
+        _uiState.value = _uiState.value.copy(name = value, errorMessage = null)
+    }
 
     fun onEmailChanged(value: String) {
         _uiState.value = _uiState.value.copy(email = value, errorMessage = null)
@@ -49,6 +54,10 @@ class AuthViewModel @Inject constructor() : ViewModel() {
             _uiState.value = state.copy(errorMessage = "Email and password required")
             return
         }
+        if (state.mode == Mode.SIGN_UP && state.name.isBlank()) {
+            _uiState.value = state.copy(errorMessage = "Name is required for sign up")
+            return
+        }
 
         val url = BuildConfig.SUPABASE_URL.trim()
         if (url.isBlank() || url.contains("localhost", ignoreCase = true)) {
@@ -64,7 +73,7 @@ class AuthViewModel @Inject constructor() : ViewModel() {
                 if (state.mode == Mode.SIGN_IN) {
                     SupabaseManager.signInWithEmail(state.email.trim(), state.password)
                 } else {
-                    SupabaseManager.signUpWithEmail(state.email.trim(), state.password)
+                    SupabaseManager.signUpWithEmail(state.name.trim(), state.email.trim(), state.password)
                 }
             }
 

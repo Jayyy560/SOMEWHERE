@@ -12,5 +12,7 @@ data class NearbyDrop(
     val latitude: Double,
     val longitude: Double,
     @SerialName("created_at") val createdAt: String? = null,
-    @SerialName("distance_m") val distanceMeters: Double? = null
+    @SerialName("distance_m") val distanceMeters: Double? = null,
+    @SerialName("author_name") val authorName: String? = null,
+    @SerialName("author_avatar_url") val authorAvatarUrl: String? = null
 )

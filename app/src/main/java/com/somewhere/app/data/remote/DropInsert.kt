@@ -9,5 +9,7 @@ data class DropInsert(
     @SerialName("image_url") val imageUrl: String,
     @SerialName("audio_url") val audioUrl: String? = null,
     val latitude: Double,
-    val longitude: Double
+    val longitude: Double,
+    @SerialName("author_name") val authorName: String? = null,
+    @SerialName("author_avatar_url") val authorAvatarUrl: String? = null
 )

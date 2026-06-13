@@ -78,7 +78,7 @@ object AppModule {
     @Singleton
     fun provideGemmaApiService(okHttpClient: OkHttpClient): GemmaApiService {
         return Retrofit.Builder()
-            .baseUrl("http://192.168.1.2:5001") // The laptop's local WiFi IP
+            .baseUrl("http://192.168.1.4:5001") // The laptop's local WiFi IP
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()

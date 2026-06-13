@@ -14,8 +14,10 @@ class AiRepository @Inject constructor(
 ) {
     suspend fun getPlaceSummary(drops: List<Drop>): String {
         if (drops.isEmpty()) return "There's nothing here yet."
+        val textDrops = drops.filter { it.text.isNotBlank() }
+        if (textDrops.isEmpty()) return "There's no text here to summarize."
         
-        val dtos = drops.map { SimpleDropDto(id = it.id, text = it.text) }
+        val dtos = textDrops.map { SimpleDropDto(id = it.id, text = it.text) }
         return try {
             val response = api.getPlaceSummary(PlaceSummaryRequest(drops = dtos))
             response.summary
@@ -26,8 +28,10 @@ class AiRepository @Inject constructor(
 
     suspend fun getCuratorDrop(drops: List<Drop>): Pair<String, String>? {
         if (drops.isEmpty()) return null
+        val textDrops = drops.filter { it.text.isNotBlank() }
+        if (textDrops.isEmpty()) return null
         
-        val dtos = drops.map { SimpleDropDto(id = it.id, text = it.text) }
+        val dtos = textDrops.map { SimpleDropDto(id = it.id, text = it.text) }
         return try {
             val response = api.getCuratorDrop(CuratorRequest(drops = dtos))
             Pair(response.short_intro, response.selected_drop_text)
