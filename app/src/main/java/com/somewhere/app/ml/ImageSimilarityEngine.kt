@@ -21,42 +21,62 @@ class ImageSimilarityEngine(context: Context) {
         val scaled1 = Bitmap.createScaledBitmap(bitmap1, resolution, resolution, true)
         val scaled2 = Bitmap.createScaledBitmap(bitmap2, resolution, resolution, true)
 
-        // 2. Compute Mean Absolute Difference (MAD)
-        var totalDifference = 0f
-        val maxDifferencePerPixel = 255f
+        val l1s = FloatArray(resolution * resolution)
+        val l2s = FloatArray(resolution * resolution)
+        
+        var sum1 = 0f
+        var sum2 = 0f
 
+        // 2. Extract luminance and calculate means
+        var index = 0
         for (x in 0 until resolution) {
             for (y in 0 until resolution) {
                 val p1 = scaled1.getPixel(x, y)
                 val p2 = scaled2.getPixel(x, y)
 
-                // Get luminance (grayscale)
-                val l1 = (Color.red(p1) * 0.299 + Color.green(p1) * 0.587 + Color.blue(p1) * 0.114).toFloat()
-                val l2 = (Color.red(p2) * 0.299 + Color.green(p2) * 0.587 + Color.blue(p2) * 0.114).toFloat()
+                val l1 = (Color.red(p1) * 0.299f + Color.green(p1) * 0.587f + Color.blue(p1) * 0.114f)
+                val l2 = (Color.red(p2) * 0.299f + Color.green(p2) * 0.587f + Color.blue(p2) * 0.114f)
 
-                totalDifference += abs(l1 - l2)
+                l1s[index] = l1
+                l2s[index] = l2
+                
+                sum1 += l1
+                sum2 += l2
+                index++
             }
         }
 
         scaled1.recycle()
         scaled2.recycle()
 
-        // 3. Convert to a similarity percentage (0.0 to 1.0)
-        val totalPixels = (resolution * resolution).toFloat()
-        val maxPossibleDifference = totalPixels * maxDifferencePerPixel
-        val differenceRatio = totalDifference / maxPossibleDifference
+        val mean1 = sum1 / (resolution * resolution)
+        val mean2 = sum2 / (resolution * resolution)
 
-        // 4. Boost the score slightly because real world photos will rarely be 100% identical 
-        // due to lighting/time of day. A 10-15% difference in MAD is actually a very good structural match.
-        val similarity = 1.0f - differenceRatio
-        
-        // Apply a curve to make scores feel more natural to the user
-        // e.g. 0.8 structural similarity feels like a 95% match to a human.
-        return when {
-            similarity > 0.85f -> 1.0f // Perfect match
-            similarity > 0.70f -> similarity * 1.15f // Good match, boost it
-            else -> similarity // Poor match
-        }.coerceIn(0f, 1f)
+        // 3. Compute Zero-Mean Normalized Cross-Correlation (ZNCC)
+        // This is perfectly invariant to lighting changes and robust against random noise!
+        var numerator = 0f
+        var sumSq1 = 0f
+        var sumSq2 = 0f
+
+        for (i in 0 until resolution * resolution) {
+            val dev1 = l1s[i] - mean1
+            val dev2 = l2s[i] - mean2
+
+            numerator += (dev1 * dev2)
+            sumSq1 += (dev1 * dev1)
+            sumSq2 += (dev2 * dev2)
+        }
+
+        if (sumSq1 == 0f || sumSq2 == 0f) return 0f
+
+        // Correlation ranges from -1.0 (inverted) to 0.0 (random) to 1.0 (perfect match)
+        val correlation = (numerator / Math.sqrt((sumSq1 * sumSq2).toDouble())).toFloat()
+
+        // Map correlation > 0 to 0.0 - 1.0 (discard negative correlations)
+        val similarity = Math.max(0f, correlation)
+
+        // Give a slight boost so an 80% correlation feels like a ~90% match
+        return (similarity * 1.15f).coerceIn(0f, 1f)
     }
 
     fun close() {
