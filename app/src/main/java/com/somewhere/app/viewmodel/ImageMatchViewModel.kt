@@ -13,8 +13,8 @@ import javax.inject.Inject
 
 enum class MatchState {
     IDLE,
-    CAPTURING,
-    PROCESSING,
+    LOADING_ORIGINAL,
+    ANALYZING,
     RESULT
 }
 
@@ -29,17 +29,32 @@ class ImageMatchViewModel @Inject constructor(
     private val _matchScore = MutableStateFlow<Int?>(null)
     val matchScore: StateFlow<Int?> = _matchScore.asStateFlow()
 
-    fun startCapture() {
-        _matchState.value = MatchState.CAPTURING
+    fun startLiveAnalysis(originalImageUrl: String) {
+        _matchState.value = MatchState.LOADING_ORIGINAL
         _matchScore.value = null
+        viewModelScope.launch {
+            val success = repository.loadOriginalImage(originalImageUrl)
+            if (success) {
+                _matchState.value = MatchState.ANALYZING
+            } else {
+                _matchScore.value = -1
+                _matchState.value = MatchState.RESULT
+            }
+        }
     }
 
-    fun processCapturedImage(originalImageUrl: String, capturedBitmap: Bitmap) {
-        _matchState.value = MatchState.PROCESSING
+    fun processLiveFrame(bitmap: Bitmap) {
+        // Only process frames if we are actively analyzing
+        if (_matchState.value != MatchState.ANALYZING) return
+
         viewModelScope.launch {
-            val score = repository.computeMatchScore(originalImageUrl, capturedBitmap)
-            _matchScore.value = score
-            _matchState.value = MatchState.RESULT
+            val score = repository.computeLiveScore(bitmap)
+            if (score != -1) {
+                _matchScore.value = score
+                if (score >= 80) {
+                    _matchState.value = MatchState.RESULT
+                }
+            }
         }
     }
 

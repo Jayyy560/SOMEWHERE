@@ -19,33 +19,43 @@ class ImageMatchRepository @Inject constructor(
 ) {
     private val engine = ImageSimilarityEngine(context)
     private val imageLoader = ImageLoader(context)
+    
+    // Cache the original bitmap to avoid downloading it every frame
+    private var cachedOriginalBitmap: Bitmap? = null
+    private var currentOriginalUrl: String? = null
 
-    suspend fun computeMatchScore(originalImageUrl: String, capturedBitmap: Bitmap): Int {
+    suspend fun loadOriginalImage(originalImageUrl: String): Boolean {
+        if (originalImageUrl == currentOriginalUrl && cachedOriginalBitmap != null) {
+            return true
+        }
+        
         return withContext(Dispatchers.IO) {
             try {
-                // Fetch the original image from the network using Coil
                 val request = ImageRequest.Builder(context)
                     .data(originalImageUrl)
-                    .allowHardware(false) // Must be false to extract software bitmap pixels
+                    .allowHardware(false)
                     .build()
                 
                 val result = imageLoader.execute(request)
                 if (result is SuccessResult) {
-                    val originalBitmap = (result.drawable as BitmapDrawable).bitmap
-                    
-                    val similarity = engine.computeSimilarity(originalBitmap, capturedBitmap)
-                    
-                    // Convert cosine similarity (-1.0 to 1.0) to a percentage (0 to 100)
-                    // For image classification probability vectors, it's usually between 0.0 and 1.0 already
-                    val score = (similarity * 100).toInt().coerceIn(0, 100)
-                    score
+                    cachedOriginalBitmap = (result.drawable as BitmapDrawable).bitmap
+                    currentOriginalUrl = originalImageUrl
+                    true
                 } else {
-                    -1 // Failed to load original image
+                    false
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
-                -1
+                false
             }
+        }
+    }
+
+    suspend fun computeLiveScore(capturedBitmap: Bitmap): Int {
+        val originalBitmap = cachedOriginalBitmap ?: return -1
+        return withContext(Dispatchers.Default) {
+            val similarity = engine.computeSimilarity(originalBitmap, capturedBitmap)
+            (similarity * 100).toInt().coerceIn(0, 100)
         }
     }
 }

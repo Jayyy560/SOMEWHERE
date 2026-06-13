@@ -58,7 +58,7 @@ fun FindSpotScreen(
         if (!cameraPermissionState.status.isGranted) {
             cameraPermissionState.launchPermissionRequest()
         }
-        viewModel.startCapture()
+        viewModel.startLiveAnalysis(originalImageUrl)
     }
 
     Box(
@@ -68,20 +68,64 @@ fun FindSpotScreen(
     ) {
         if (cameraPermissionState.status.isGranted) {
             when (matchState) {
-                MatchState.CAPTURING -> {
-                    CameraCaptureView(
-                        onImageCaptured = { bitmap ->
-                            viewModel.processCapturedImage(originalImageUrl, bitmap)
+                MatchState.LOADING_ORIGINAL -> {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator(color = SomewhereColors.Accent)
+                        Spacer(Modifier.height(16.dp))
+                        Text("Loading original image...", color = SomewhereColors.TextPrimary)
+                    }
+                }
+                MatchState.ANALYZING -> {
+                    CameraLiveView(
+                        onFrameAnalyzed = { bitmap ->
+                            viewModel.processLiveFrame(bitmap)
                         }
                     )
-                }
-                MatchState.PROCESSING -> {
-                    ProcessingView()
+                    
+                    // Live UI Overlay
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(bottom = 64.dp),
+                        contentAlignment = Alignment.BottomCenter
+                    ) {
+                        val currentScore = score ?: 0
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "Point your camera to find the spot",
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier
+                                    .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            
+                            // Live score bubble
+                            Box(
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .clip(CircleShape)
+                                    .background(if (currentScore > 60) SomewhereColors.Accent else Color.Black.copy(alpha = 0.7f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "$currentScore%",
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                                )
+                            }
+                        }
+                    }
                 }
                 MatchState.RESULT -> {
                     MatchResultCard(
                         score = score ?: -1,
-                        onRetry = { viewModel.startCapture() },
+                        onRetry = { viewModel.startLiveAnalysis(originalImageUrl) },
                         onDone = onBack
                     )
                 }
@@ -105,7 +149,8 @@ fun FindSpotScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(16.dp)
+                .systemBarsPadding(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
@@ -126,14 +171,34 @@ fun FindSpotScreen(
 }
 
 @Composable
-fun CameraCaptureView(onImageCaptured: (Bitmap) -> Unit) {
+fun CameraLiveView(onFrameAnalyzed: (Bitmap) -> Unit) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     
     val previewView = remember { PreviewView(context) }
-    val imageCapture = remember { ImageCapture.Builder().build() }
+    
+    val imageAnalysis = remember {
+        androidx.camera.core.ImageAnalysis.Builder()
+            .setOutputImageFormat(androidx.camera.core.ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
+            .setBackpressureStrategy(androidx.camera.core.ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+            .build()
+    }
     
     LaunchedEffect(previewView) {
+        imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(context)) { imageProxy ->
+            try {
+                val bitmap = imageProxy.toBitmap()
+                val matrix = Matrix()
+                matrix.postRotate(imageProxy.imageInfo.rotationDegrees.toFloat())
+                val rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+                onFrameAnalyzed(rotatedBitmap)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                imageProxy.close()
+            }
+        }
+
         val cameraProvider = context.getCameraProvider()
         val preview = Preview.Builder().build().also {
             it.surfaceProvider = previewView.surfaceProvider
@@ -145,7 +210,7 @@ fun CameraCaptureView(onImageCaptured: (Bitmap) -> Unit) {
                 lifecycleOwner,
                 CameraSelector.DEFAULT_BACK_CAMERA,
                 preview,
-                imageCapture
+                imageAnalysis
             )
         } catch (e: Exception) {
             e.printStackTrace()
@@ -156,66 +221,6 @@ fun CameraCaptureView(onImageCaptured: (Bitmap) -> Unit) {
         AndroidView(
             factory = { previewView },
             modifier = Modifier.fillMaxSize()
-        )
-        
-        // Capture Button
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 64.dp)
-                .size(72.dp)
-                .background(Color.White, CircleShape)
-                .padding(4.dp)
-                .background(Color.Black, CircleShape)
-                .padding(4.dp)
-                .background(Color.White, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            IconButton(
-                onClick = {
-                    imageCapture.takePicture(
-                        ContextCompat.getMainExecutor(context),
-                        object : ImageCapture.OnImageCapturedCallback() {
-                            override fun onCaptureSuccess(image: ImageProxy) {
-                                val buffer = image.planes[0].buffer
-                                val bytes = ByteArray(buffer.remaining())
-                                buffer.get(bytes)
-                                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, null)
-                                
-                                val matrix = Matrix()
-                                matrix.postRotate(image.imageInfo.rotationDegrees.toFloat())
-                                val rotatedBitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
-                                
-                                image.close()
-                                onImageCaptured(rotatedBitmap)
-                            }
-                            override fun onError(exception: ImageCaptureException) {
-                                exception.printStackTrace()
-                            }
-                        }
-                    )
-                },
-                modifier = Modifier.fillMaxSize()
-            ) {
-                Icon(Icons.Default.CameraAlt, contentDescription = "Capture", tint = Color.Black)
-            }
-        }
-    }
-}
-
-@Composable
-fun ProcessingView() {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        CircularProgressIndicator(color = SomewhereColors.Accent)
-        Spacer(Modifier.height(24.dp))
-        Text(
-            text = "Comparing images...",
-            style = MaterialTheme.typography.titleMedium,
-            color = SomewhereColors.TextPrimary
         )
     }
 }
