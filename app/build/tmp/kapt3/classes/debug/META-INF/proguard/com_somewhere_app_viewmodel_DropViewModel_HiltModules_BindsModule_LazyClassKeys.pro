@@ -1,1 +1,0 @@
--keep,allowobfuscation,allowshrinking class com.somewhere.app.viewmodel.DropViewModel

@@ -22,6 +22,7 @@ class DropViewModel @Inject constructor(
 
     data class DropUiState(
         val capturedImageUri: Uri? = null,
+        val recordedAudioUri: Uri? = null,
         val text: String = "",
         val isSaving: Boolean = false,
         val isSaved: Boolean = false,
@@ -41,6 +42,18 @@ class DropViewModel @Inject constructor(
         }
     }
 
+    fun onAudioCaptured(uri: Uri) {
+        _uiState.value = _uiState.value.copy(recordedAudioUri = uri)
+    }
+
+    fun clearAudio() {
+        val current = _uiState.value.recordedAudioUri ?: return
+        viewModelScope.launch {
+            repository.deleteLocalAudio(current.toString())
+        }
+        _uiState.value = _uiState.value.copy(recordedAudioUri = null)
+    }
+
     fun saveDrop(latitude: Double, longitude: Double) {
         val state = _uiState.value
         val imageUri = state.capturedImageUri ?: return
@@ -53,6 +66,7 @@ class DropViewModel @Inject constructor(
                 repository.saveDrop(
                     text = state.text,
                     imagePath = imageUri.toString(),
+                    audioPath = state.recordedAudioUri?.toString(),
                     latitude = latitude,
                     longitude = longitude
                 )
@@ -73,6 +87,13 @@ class DropViewModel @Inject constructor(
             viewModelScope.launch {
                 if (!previous.isSaved) {
                     repository.deleteLocalImage(uri.toString())
+                }
+            }
+        }
+        previous.recordedAudioUri?.let { uri ->
+            viewModelScope.launch {
+                if (!previous.isSaved) {
+                    repository.deleteLocalAudio(uri.toString())
                 }
             }
         }

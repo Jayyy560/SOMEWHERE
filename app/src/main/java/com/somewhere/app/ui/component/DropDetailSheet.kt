@@ -1,6 +1,7 @@
 package com.somewhere.app.ui.component
 
 import android.net.Uri
+import android.media.MediaPlayer
 import androidx.compose.animation.core.*
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
@@ -18,6 +19,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Report
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,7 +33,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.util.LocationUtils
 import com.somewhere.app.util.rememberReduceMotionEnabled
@@ -38,6 +40,8 @@ import com.somewhere.app.viewmodel.DiscoveredDrop
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
+import kotlin.math.abs
+import kotlin.math.sin
 import kotlinx.coroutines.launch
 
 /**
@@ -56,6 +60,8 @@ fun DropDetailSheet(
     val reduceMotion = rememberReduceMotionEnabled()
     val scope = rememberCoroutineScope()
     var dragOffset by remember { mutableStateOf(0f) }
+    var player by remember { mutableStateOf<MediaPlayer?>(null) }
+    var isAudioPlaying by remember { mutableStateOf(false) }
     val scaleAnim by animateFloatAsState(
         targetValue = if (expanded) 1f else 0.85f,
         animationSpec = if (reduceMotion) {
@@ -131,11 +137,9 @@ fun DropDetailSheet(
                 }
             }
             // Photo
+            val context = LocalContext.current
             AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(Uri.parse(item.drop.imagePath))
-                    .crossfade(true)
-                    .build(),
+                model = item.drop.imageUrl,
                 contentDescription = "Drop photo",
                 modifier = Modifier
                     .fillMaxWidth()
@@ -146,12 +150,60 @@ fun DropDetailSheet(
 
             Spacer(Modifier.height(20.dp))
 
-            // Message text
-            Text(
-                text = item.drop.text,
-                style = MaterialTheme.typography.bodyLarge,
-                modifier = Modifier.padding(horizontal = 24.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = item.drop.text,
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.weight(1f)
+                )
+
+                if (!item.drop.audioPath.isNullOrBlank()) {
+                    DetailWaveform(active = isAudioPlaying)
+
+                    IconButton(
+                        onClick = {
+                            if (player?.isPlaying == true) {
+                                player?.pause()
+                                isAudioPlaying = false
+                            } else if (player != null) {
+                                runCatching {
+                                    player?.start()
+                                    isAudioPlaying = true
+                                }
+                            } else {
+                                player = playAudio(
+                                    context = context,
+                                    path = item.drop.audioPath,
+                                    onComplete = {
+                                        isAudioPlaying = false
+                                        player = null
+                                    }
+                                )
+                                isAudioPlaying = player != null
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = if (isAudioPlaying) {
+                                Icons.Default.Pause
+                            } else {
+                                Icons.Default.PlayArrow
+                            },
+                            contentDescription = if (isAudioPlaying) {
+                                "Pause audio"
+                            } else {
+                                "Play audio"
+                            }
+                        )
+                    }
+                }
+            }
 
             Spacer(Modifier.height(16.dp))
 
@@ -195,6 +247,69 @@ fun DropDetailSheet(
             Spacer(Modifier.height(24.dp))
         }
     }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            runCatching {
+                player?.stop()
+                player?.release()
+            }
+            isAudioPlaying = false
+        }
+    }
+}
+
+@Composable
+private fun DetailWaveform(active: Boolean) {
+    val transition = rememberInfiniteTransition(label = "detailWave")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "phase"
+    )
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        repeat(10) { index ->
+            val dynamic = abs(sin((index / 2.8f + phase) * Math.PI)).toFloat()
+            val heightScale = if (active) (0.25f + dynamic * 0.75f) else 0.16f
+            Box(
+                modifier = Modifier
+                    .width(2.5.dp)
+                    .height((6 + heightScale * 18f).dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(SomewhereColors.TextPrimary.copy(alpha = if (active) 1f else 0.45f))
+            )
+        }
+    }
+}
+
+private fun playAudio(
+    context: android.content.Context,
+    path: String,
+    onComplete: () -> Unit
+): MediaPlayer? {
+    return runCatching {
+        MediaPlayer().apply {
+            if (path.startsWith("/")) {
+                setDataSource(path)
+            } else {
+                setDataSource(context, Uri.parse(path))
+            }
+            prepare()
+            start()
+            setOnCompletionListener { mp ->
+                onComplete()
+                mp.release()
+            }
+        }
+    }.getOrNull()
 }
 
 private fun formatTimestamp(timestamp: Long): String {

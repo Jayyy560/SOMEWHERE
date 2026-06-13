@@ -15,6 +15,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -60,6 +61,7 @@ class DiscoveryViewModel @Inject constructor(
 
     // Current device heading (compass)
     private var currentHeading = 0f
+    private var realtimeStarted = false
 
     private val sensorListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
@@ -127,6 +129,22 @@ class DiscoveryViewModel @Inject constructor(
             )
         } catch (_: SecurityException) {
             // Permission not granted — handled in UI layer
+        }
+
+        if (!realtimeStarted) {
+            realtimeStarted = true
+            viewModelScope.launch {
+                repository.startRealtimeDrops()
+            }
+
+            viewModelScope.launch {
+                repository.dropChanges.collectLatest {
+                    val state = _uiState.value
+                    if (state.hasLocation) {
+                        fetchNearbyDrops(state.userLat, state.userLon)
+                    }
+                }
+            }
         }
     }
 
