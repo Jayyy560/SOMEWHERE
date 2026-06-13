@@ -304,12 +304,29 @@ fun DropScreen(
                         }
                     )
 
-                    // Character count
-                    Text(
-                        text = "${uiState.text.length}/120",
-                        style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.align(Alignment.End)
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(
+                            onClick = { viewModel.generateAiDrop(context) },
+                            contentPadding = PaddingValues(0.dp),
+                            modifier = Modifier.height(24.dp)
+                        ) {
+                            Text(
+                                text = "✨ Generate with AI",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = SomewhereColors.GlowAccent
+                            )
+                        }
+
+                        Text(
+                            text = "${uiState.text.length}/120",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = SomewhereColors.TextSecondary
+                        )
+                    }
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),

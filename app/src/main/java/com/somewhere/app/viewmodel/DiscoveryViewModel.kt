@@ -9,8 +9,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.android.gms.location.*
 import com.somewhere.app.data.model.Drop
+import com.somewhere.app.data.repository.AiRepository
 import com.somewhere.app.data.repository.DropRepository
 import com.somewhere.app.util.LocationUtils
+import com.somewhere.app.util.LocationUtils.HYSTERESIS_MARGIN
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -38,6 +40,7 @@ data class DiscoveredDrop(
 @HiltViewModel
 class DiscoveryViewModel @Inject constructor(
     private val repository: DropRepository,
+    private val aiRepository: AiRepository,
     private val sensorManager: SensorManager,
     private val fusedLocationClient: FusedLocationProviderClient
 ) : ViewModel() {
@@ -50,7 +53,11 @@ class DiscoveryViewModel @Inject constructor(
         val hasLocation: Boolean = false,
         val locationAccuracyMeters: Float? = null,
         val selectedDrop: DiscoveredDrop? = null,
-        val message: String? = null
+        val message: String? = null,
+        val isSummarizing: Boolean = false,
+        val summaryText: String? = null,
+        val isCurating: Boolean = false,
+        val curatedDrop: Pair<String, String>? = null // (Intro, Text)
     )
 
     private val _uiState = MutableStateFlow(DiscoveryUiState())
@@ -119,7 +126,7 @@ class DiscoveryViewModel @Inject constructor(
         }
 
         // Request location updates
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 2000)
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 3000)
             .setMinUpdateIntervalMillis(1000)
             .build()
 
@@ -183,9 +190,59 @@ class DiscoveryViewModel @Inject constructor(
         }
     }
 
+    fun summarizePlace() {
+        val drops = _uiState.value.nearbyDrops.map { it.drop }
+        if (drops.isEmpty()) {
+            _uiState.value = _uiState.value.copy(summaryText = "No drops nearby to summarize.")
+            return
+        }
+
+        _uiState.value = _uiState.value.copy(isSummarizing = true, summaryText = null)
+        viewModelScope.launch {
+            val summary = aiRepository.getPlaceSummary(drops)
+            _uiState.value = _uiState.value.copy(
+                isSummarizing = false,
+                summaryText = summary
+            )
+        }
+    }
+
+    fun clearSummary() {
+        _uiState.value = _uiState.value.copy(summaryText = null)
+    }
+
+    fun curateDrop() {
+        val drops = _uiState.value.nearbyDrops.map { it.drop }
+        if (drops.isEmpty()) {
+            _uiState.value = _uiState.value.copy(message = "No drops nearby for the curator.")
+            return
+        }
+
+        _uiState.value = _uiState.value.copy(isCurating = true, curatedDrop = null)
+        viewModelScope.launch {
+            val curated = aiRepository.getCuratorDrop(drops)
+            if (curated != null) {
+                _uiState.value = _uiState.value.copy(
+                    isCurating = false,
+                    curatedDrop = curated
+                )
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    isCurating = false,
+                    message = "Curator is resting right now."
+                )
+            }
+        }
+    }
+
+    fun clearCuratedDrop() {
+        _uiState.value = _uiState.value.copy(curatedDrop = null)
+    }
+
     private fun fetchNearbyDrops(lat: Double, lon: Double) {
         viewModelScope.launch {
             val nearbyWithDistance = repository.getDropsNear(lat, lon)
+            val previousIds = _uiState.value.nearbyDrops.map { it.drop.id }.toSet()
 
             val discovered = nearbyWithDistance.mapIndexed { index, (drop, distance) ->
                 val bearing = LocationUtils.bearing(lat, lon, drop.latitude, drop.longitude)
@@ -204,13 +261,29 @@ class DiscoveryViewModel @Inject constructor(
                 )
             }
 
-            _uiState.value = _uiState.value.copy(nearbyDrops = discovered)
+            // Hysteresis: keep previously visible drops even if they drifted
+            // slightly beyond discovery radius (up to HYSTERESIS_MARGIN extra)
+            val currentIds = discovered.map { it.drop.id }.toSet()
+            val retained = _uiState.value.nearbyDrops
+                .filter { existing ->
+                    existing.drop.id in previousIds &&
+                    existing.drop.id !in currentIds &&
+                    existing.distanceMeters <= LocationUtils.DISCOVERY_RADIUS + HYSTERESIS_MARGIN
+                }
+                .map { it.copy(isNewlyDiscovered = false) }
+
+            val merged = (discovered + retained)
+                .sortedBy { it.distanceMeters }
+                .take(LocationUtils.MAX_VISIBLE)
+
+            _uiState.value = _uiState.value.copy(nearbyDrops = merged)
         }
     }
 
     private fun updateOverlayPositions() {
         val state = _uiState.value
         if (state.nearbyDrops.isEmpty()) return
+        if (!state.hasLocation) return
 
         val updated = state.nearbyDrops.map { item ->
             val bearing = LocationUtils.bearing(
@@ -218,13 +291,20 @@ class DiscoveryViewModel @Inject constructor(
                 item.drop.latitude, item.drop.longitude
             )
             val angle = LocationUtils.angleDifference(currentHeading, bearing)
-            
-            // Note: We used to have distance-based smoothing here that forced the angle to 0,
-            // which caused the items to float perpetually on-screen even when looking away.
-            // By keeping the strict angle, items will natively fall off-screen.
+            val dist = LocationUtils.haversineDistance(
+                state.userLat, state.userLon,
+                item.drop.latitude, item.drop.longitude
+            )
 
-            item.copy(angleDegrees = angle, isNewlyDiscovered = false)
+            item.copy(
+                distanceMeters = dist,
+                isUnlocked = dist <= LocationUtils.UNLOCK_RADIUS,
+                angleDegrees = angle,
+                isNewlyDiscovered = false
+            )
         }
+            .sortedBy { it.distanceMeters }
+            .mapIndexed { index, item -> item.copy(isPrimary = index == 0) }
 
         _uiState.value = state.copy(nearbyDrops = updated, heading = currentHeading)
     }

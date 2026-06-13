@@ -8,8 +8,13 @@ import com.somewhere.app.data.local.DropDao
 import com.somewhere.app.data.repository.DropRepository
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
+import com.somewhere.app.data.remote.GemmaApiService
 import dagger.Module
 import dagger.Provides
+import okhttp3.OkHttpClient
+import okhttp3.logging.HttpLoggingInterceptor
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
@@ -54,4 +59,29 @@ object AppModule {
     fun provideFusedLocationClient(
         @ApplicationContext context: Context
     ): FusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(context)
+
+    @Provides
+    @Singleton
+    fun provideOkHttpClient(): OkHttpClient {
+        val interceptor = HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BODY
+        }
+        return OkHttpClient.Builder()
+            .addInterceptor(interceptor)
+            .connectTimeout(300, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(300, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(300, java.util.concurrent.TimeUnit.SECONDS)
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideGemmaApiService(okHttpClient: OkHttpClient): GemmaApiService {
+        return Retrofit.Builder()
+            .baseUrl("http://192.168.1.2:5001") // The laptop's local WiFi IP
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(GemmaApiService::class.java)
+    }
 }

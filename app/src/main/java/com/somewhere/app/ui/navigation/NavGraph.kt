@@ -1,5 +1,7 @@
 package com.somewhere.app.ui.navigation
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -19,14 +21,40 @@ object Routes {
     const val SETTINGS = "settings"
 }
 
+private const val TRANSITION_DURATION = 350
+
 /**
- * Navigation graph — three screens, simple flat navigation.
+ * Navigation graph — four screens with smooth slide transitions.
  */
 @Composable
 fun SomewhereNavGraph(navController: NavHostController) {
     NavHost(
         navController = navController,
-        startDestination = Routes.HOME
+        startDestination = Routes.HOME,
+        enterTransition = {
+            slideInHorizontally(
+                initialOffsetX = { fullWidth -> fullWidth },
+                animationSpec = tween(TRANSITION_DURATION)
+            ) + fadeIn(animationSpec = tween(TRANSITION_DURATION))
+        },
+        exitTransition = {
+            slideOutHorizontally(
+                targetOffsetX = { fullWidth -> -fullWidth / 3 },
+                animationSpec = tween(TRANSITION_DURATION)
+            ) + fadeOut(animationSpec = tween(TRANSITION_DURATION))
+        },
+        popEnterTransition = {
+            slideInHorizontally(
+                initialOffsetX = { fullWidth -> -fullWidth / 3 },
+                animationSpec = tween(TRANSITION_DURATION)
+            ) + fadeIn(animationSpec = tween(TRANSITION_DURATION))
+        },
+        popExitTransition = {
+            slideOutHorizontally(
+                targetOffsetX = { fullWidth -> fullWidth },
+                animationSpec = tween(TRANSITION_DURATION)
+            ) + fadeOut(animationSpec = tween(TRANSITION_DURATION))
+        }
     ) {
         composable(Routes.HOME) {
             HomeScreen(

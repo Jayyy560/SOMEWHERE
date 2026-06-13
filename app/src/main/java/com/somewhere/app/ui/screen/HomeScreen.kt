@@ -17,6 +17,10 @@ import com.somewhere.app.ui.theme.SomewhereColors
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import com.somewhere.app.util.rememberReduceMotionEnabled
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 
 /**
  * Home screen — minimal entry point.
@@ -43,6 +47,7 @@ fun HomeScreen(
         label = "buttonsFade"
     )
     LaunchedEffect(Unit) { visible = true }
+    val haptics = LocalHapticFeedback.current
 
     Box(
         modifier = Modifier
@@ -81,14 +86,46 @@ fun HomeScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            SomewhereButton(
+            PressableButton(
                 text = "Explore",
-                onClick = onExplore
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onExplore()
+                }
             )
-            SomewhereButton(
+            PressableButton(
                 text = "Leave something here",
-                onClick = onDrop
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onDrop()
+                }
             )
         }
     }
 }
+
+@Composable
+private fun PressableButton(
+    text: String,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.96f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessHigh
+        ),
+        label = "pressScale"
+    )
+
+    Box(modifier = Modifier.scale(scale)) {
+        SomewhereButton(
+            text = text,
+            onClick = onClick,
+            interactionSource = interactionSource
+        )
+    }
+}
+

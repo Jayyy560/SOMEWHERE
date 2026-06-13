@@ -26,4 +26,18 @@ object SomewhereColors {
     val Divider = Color(0xFF1A1A1A)
 
     val Error = Color(0xFFCF6679)
+
+    // Glassmorphism overlay card
+    val GlassBackground = Color(0xCC121218)      // Dark with slight blue tint, 80% opacity
+    val GlassBorder = Color(0x33FFFFFF)           // 20% white border
+    val GlowAccent = Color(0xFFE8D5B7)           // Warm amber glow for unlocked drops
+    val GlowAccentDim = Color(0x33E8D5B7)        // Dim version for subtle radial glow
+    val DistancePill = Color(0xFF2A2A3A)         // Muted pill background
+    val DistancePillText = Color(0xFFD4C8B8)     // Warm off-white text for pills
+    val LockTint = Color(0xFF5A5A6A)             // Subtle gray for locked state
+
+    // Accuracy indicator colors
+    val AccuracyGood = Color(0xFF4CAF50)
+    val AccuracyModerate = Color(0xFFFF9800)
+    val AccuracyPoor = Color(0xFFEF5350)
 }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -19,19 +20,27 @@ import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Report
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.util.LocationUtils
@@ -47,7 +56,8 @@ import kotlinx.coroutines.launch
 /**
  * Expanded detail view for a discovered drop.
  * Animates in from overlay → center with dimmed backdrop.
- * Shows photo, message text, distance, and timestamp.
+ * Premium design: rounded image with gradient overlay, drag handle,
+ * better typography, redesigned waveform, subtle action buttons.
  */
 @Composable
 fun DropDetailSheet(
@@ -62,6 +72,8 @@ fun DropDetailSheet(
     var dragOffset by remember { mutableStateOf(0f) }
     var player by remember { mutableStateOf<MediaPlayer?>(null) }
     var isAudioPlaying by remember { mutableStateOf(false) }
+    var showActions by remember { mutableStateOf(false) }
+
     val scaleAnim by animateFloatAsState(
         targetValue = if (expanded) 1f else 0.85f,
         animationSpec = if (reduceMotion) {
@@ -84,12 +96,20 @@ fun DropDetailSheet(
 
     BackHandler(onBack = onDismiss)
 
-    // Dimmed backdrop
+    // Dimmed backdrop with vignette
     Box(
         modifier = Modifier
             .fillMaxSize()
             .alpha(alphaAnim)
-            .background(SomewhereColors.Overlay)
+            .background(
+                Brush.radialGradient(
+                    colors = listOf(
+                        SomewhereColors.Overlay,
+                        Color(0xF00A0A0A) // Darker at edges for vignette
+                    ),
+                    radius = 1200f
+                )
+            )
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() }
@@ -102,8 +122,13 @@ fun DropDetailSheet(
                 .offset { IntOffset(0, dragOffset.roundToInt()) }
                 .scale(scaleAnim)
                 .alpha(alphaAnim)
-                .widthIn(max = 320.dp)
-                .clip(RoundedCornerShape(6.dp))
+                .widthIn(max = 340.dp)
+                .shadow(
+                    elevation = 24.dp,
+                    shape = RoundedCornerShape(20.dp),
+                    ambientColor = SomewhereColors.GlowAccent.copy(alpha = 0.1f)
+                )
+                .clip(RoundedCornerShape(20.dp))
                 .background(SomewhereColors.Surface)
                 .clickable(
                     indication = null,
@@ -121,51 +146,106 @@ fun DropDetailSheet(
                             scope.launch { dragOffset = 0f }
                         }
                     }
-                )
-                .padding(0.dp),
+                ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Drag handle
+            Box(
+                modifier = Modifier
+                    .padding(top = 12.dp, bottom = 8.dp)
+                    .width(40.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(SomewhereColors.TextMuted)
+            )
+
+            // Photo with gradient overlay
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
+                    .clip(RoundedCornerShape(14.dp))
             ) {
+                val context = LocalContext.current
+                AsyncImage(
+                    model = item.drop.imageUrl,
+                    contentDescription = "Drop photo",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(4f / 3f),
+                    contentScale = ContentScale.Crop
+                )
+
+                // Bottom gradient for text readability
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(60.dp)
+                        .align(Alignment.BottomCenter)
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color.Black.copy(alpha = 0.5f)
+                                )
+                            )
+                        )
+                )
+
+                // Close button on image
                 IconButton(
                     onClick = onDismiss,
-                    modifier = Modifier.align(Alignment.TopEnd)
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(4.dp)
+                        .size(32.dp)
+                        .background(
+                            SomewhereColors.Background.copy(alpha = 0.5f),
+                            CircleShape
+                        )
                 ) {
-                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close")
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        modifier = Modifier.size(16.dp),
+                        tint = SomewhereColors.TextPrimary
+                    )
                 }
             }
-            // Photo
-            val context = LocalContext.current
-            AsyncImage(
-                model = item.drop.imageUrl,
-                contentDescription = "Drop photo",
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .aspectRatio(4f / 3f)
-                    .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp)),
-                contentScale = ContentScale.Crop
-            )
 
             Spacer(Modifier.height(20.dp))
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
+            // Message text
+            if (item.drop.text.isNotBlank()) {
                 Text(
                     text = item.drop.text,
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.weight(1f)
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontWeight = FontWeight.Medium,
+                        lineHeight = 24.sp
+                    ),
+                    color = SomewhereColors.TextPrimary,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
                 )
 
-                if (!item.drop.audioPath.isNullOrBlank()) {
-                    DetailWaveform(active = isAudioPlaying)
+                Spacer(Modifier.height(12.dp))
+            }
 
+            // Audio player
+            if (!item.drop.audioPath.isNullOrBlank()) {
+                val context = LocalContext.current
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(SomewhereColors.Card)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Play/pause button
                     IconButton(
                         onClick = {
                             if (player?.isPlaying == true) {
@@ -187,7 +267,13 @@ fun DropDetailSheet(
                                 )
                                 isAudioPlaying = player != null
                             }
-                        }
+                        },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .background(
+                                SomewhereColors.GlowAccent.copy(alpha = 0.15f),
+                                CircleShape
+                            )
                     ) {
                         Icon(
                             imageVector = if (isAudioPlaying) {
@@ -195,56 +281,138 @@ fun DropDetailSheet(
                             } else {
                                 Icons.Default.PlayArrow
                             },
-                            contentDescription = if (isAudioPlaying) {
-                                "Pause audio"
-                            } else {
-                                "Play audio"
-                            }
+                            contentDescription = if (isAudioPlaying) "Pause" else "Play",
+                            tint = SomewhereColors.GlowAccent,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
+
+                    // Waveform
+                    DetailWaveform(
+                        active = isAudioPlaying,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
+
+                Spacer(Modifier.height(12.dp))
             }
 
-            Spacer(Modifier.height(16.dp))
+            // Divider
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .height(0.5.dp)
+                    .background(SomewhereColors.Divider)
+            )
 
-            // Distance + timestamp row
+            Spacer(Modifier.height(12.dp))
+
+            // Metadata row: distance + timestamp
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = LocationUtils.formatDistance(item.distanceMeters),
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Text(
-                    text = formatTimestamp(item.drop.timestamp),
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
+                // Distance with icon
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    IconButton(onClick = onReport) {
-                        Icon(imageVector = Icons.Default.Report, contentDescription = "Report")
-                    }
-                    IconButton(onClick = onDelete) {
-                        Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete")
-                    }
+                    Icon(
+                        imageVector = Icons.Default.LocationOn,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = SomewhereColors.GlowAccent
+                    )
+                    Text(
+                        text = LocationUtils.formatDistance(item.distanceMeters),
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontWeight = FontWeight.Medium
+                        ),
+                        color = SomewhereColors.TextSecondary
+                    )
+                }
+
+                // Timestamp with icon
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = SomewhereColors.TextMuted
+                    )
+                    Text(
+                        text = formatTimestamp(item.drop.timestamp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SomewhereColors.TextSecondary
+                    )
                 }
             }
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(12.dp))
+
+            // Action row — subtle overflow style
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (showActions) {
+                    // Expanded actions
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Report
+                        IconButton(
+                            onClick = onReport,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Report,
+                                contentDescription = "Report",
+                                modifier = Modifier.size(18.dp),
+                                tint = SomewhereColors.TextMuted
+                            )
+                        }
+                        // Delete
+                        IconButton(
+                            onClick = onDelete,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete",
+                                modifier = Modifier.size(18.dp),
+                                tint = SomewhereColors.Error.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                }
+
+                // More button
+                IconButton(
+                    onClick = { showActions = !showActions },
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "More actions",
+                        modifier = Modifier.size(18.dp),
+                        tint = SomewhereColors.TextMuted
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
         }
     }
 
@@ -260,7 +428,10 @@ fun DropDetailSheet(
 }
 
 @Composable
-private fun DetailWaveform(active: Boolean) {
+private fun DetailWaveform(
+    active: Boolean,
+    modifier: Modifier = Modifier
+) {
     val transition = rememberInfiniteTransition(label = "detailWave")
     val phase by transition.animateFloat(
         initialValue = 0f,
@@ -273,18 +444,28 @@ private fun DetailWaveform(active: Boolean) {
     )
 
     Row(
+        modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        repeat(10) { index ->
-            val dynamic = abs(sin((index / 2.8f + phase) * Math.PI)).toFloat()
-            val heightScale = if (active) (0.25f + dynamic * 0.75f) else 0.16f
+        repeat(20) { index ->
+            val dynamic = abs(sin((index / 3.5f + phase) * Math.PI)).toFloat()
+            val heightScale = if (active) (0.2f + dynamic * 0.8f) else 0.12f
+            // Gradient coloring: center bars are warmer
+            val barAlpha = if (active) {
+                0.5f + dynamic * 0.5f
+            } else {
+                0.3f
+            }
             Box(
                 modifier = Modifier
-                    .width(2.5.dp)
-                    .height((6 + heightScale * 18f).dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(SomewhereColors.TextPrimary.copy(alpha = if (active) 1f else 0.45f))
+                    .width(2.dp)
+                    .height((4 + heightScale * 20f).dp)
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(
+                        if (active) SomewhereColors.GlowAccent.copy(alpha = barAlpha)
+                        else SomewhereColors.TextMuted.copy(alpha = barAlpha)
+                    )
             )
         }
     }

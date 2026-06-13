@@ -49,6 +49,7 @@ class DropRepository(
         latitude: Double,
         longitude: Double
     ): Drop {
+        require(text.isNotBlank()) { "Drop text must not be blank" }
         val uploadedImageUrl = uploadImageAndGetPublicUrl(Uri.parse(imagePath))
         val normalizedAudioPath = audioPath?.let { normalizeLocalPath(it) ?: it }
         val uploadedAudioUrl = audioPath?.let { path ->
@@ -232,6 +233,7 @@ class DropRepository(
             .decodeList<NearbyDrop>()
 
         return remoteDrops
+            .filter { it.text.isNotBlank() }
             .map { remote ->
                 val drop = Drop(
                     id = remote.id,
@@ -266,6 +268,7 @@ class DropRepository(
         val candidates = dao.getInBoundingBox(lat, lon, delta)
 
         return candidates
+            .filter { it.text.isNotBlank() }
             .map { drop ->
                 val dist = LocationUtils.haversineDistance(
                     lat, lon, drop.latitude, drop.longitude

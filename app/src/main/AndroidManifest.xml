@@ -20,6 +20,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="SOMEWHERE"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
         android:theme="@style/Theme.Somewhere"
         tools:targetApi="35">
 

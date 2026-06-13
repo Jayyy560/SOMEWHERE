@@ -1,14 +1,17 @@
 package com.somewhere.app.viewmodel
 
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.somewhere.app.data.repository.DropRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.json.JSONArray
 import javax.inject.Inject
 
 /**
@@ -39,6 +42,20 @@ class DropViewModel @Inject constructor(
     fun onTextChanged(text: String) {
         if (text.length <= 120) {
             _uiState.value = _uiState.value.copy(text = text)
+        }
+    }
+
+    fun generateAiDrop(context: Context) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val jsonString = context.assets.open("ai_drops.json").bufferedReader().use { it.readText() }
+                val jsonArray = JSONArray(jsonString)
+                val drops = List(jsonArray.length()) { jsonArray.getString(it) }
+                val randomDrop = drops.random()
+                _uiState.value = _uiState.value.copy(text = randomDrop)
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(error = "Failed to load AI drops")
+            }
         }
     }
 

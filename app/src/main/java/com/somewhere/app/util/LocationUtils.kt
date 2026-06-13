@@ -7,10 +7,11 @@ import kotlin.math.*
  */
 object LocationUtils {
 
-    const val DISCOVERY_RADIUS = 15f   // meters — max radius to show drops
-    const val UNLOCK_RADIUS = 8f       // meters — drops become tappable within this
-    const val MAX_VISIBLE = 3          // max overlays shown at once
+    const val DISCOVERY_RADIUS = 100f   // meters — max radius to show drops
+    const val UNLOCK_RADIUS = 15f       // meters — drops become tappable within this
+    const val MAX_VISIBLE = 8           // max overlays shown at once
     const val ACCURACY_WARNING_METERS = 35f
+    const val HYSTERESIS_MARGIN = 10f   // extra meters before removing a visible drop
 
     /**
      * Haversine distance between two GPS points in meters.
