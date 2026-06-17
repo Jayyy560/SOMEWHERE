@@ -8,6 +8,10 @@ import com.somewhere.app.data.local.DropDao
 import com.somewhere.app.data.model.Drop
 import com.somewhere.app.data.remote.DropInsert
 import com.somewhere.app.data.remote.NearbyDrop
+import com.somewhere.app.data.remote.DropLike
+import com.somewhere.app.data.remote.DropComment
+import com.somewhere.app.data.remote.NotificationItem
+import com.somewhere.app.data.remote.UnlockedDrop
 import com.somewhere.app.data.remote.SupabaseManager
 import com.somewhere.app.util.LocationUtils
 import io.github.jan.supabase.postgrest.from
@@ -21,6 +25,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonPrimitive
@@ -45,16 +51,45 @@ class DropRepository(
     private val dropChangeEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val dropChanges: SharedFlow<Unit> = dropChangeEvents.asSharedFlow()
 
-    val allDrops: Flow<List<Drop>> = dao.getAll()
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val allDrops: Flow<List<Drop>> = SupabaseManager.client.auth.sessionStatus
+        .flatMapLatest {
+            val userId = SupabaseManager.client.auth.currentUserOrNull()?.id
+            if (userId != null) {
+                dao.getAll(userId)
+            } else {
+                flowOf(emptyList())
+            }
+        }
 
     suspend fun saveDrop(
         text: String,
         imagePath: String,
         audioPath: String?,
         latitude: Double,
-        longitude: Double
+        longitude: Double,
+        expiresAt: Long? = null,
+        isAnonymous: Boolean = false,
+        category: String? = null
     ): Drop {
         require(text.isNotBlank()) { "Drop text must not be blank" }
+
+        // Client-side rate limiting: Max 15 drops per hour
+        val dropTimestampsStr = sharedPrefs.getString("drop_timestamps", "") ?: ""
+        val now = System.currentTimeMillis()
+        val oneHourAgo = now - 3600 * 1000
+        val validTimestamps = dropTimestampsStr.split(",")
+            .mapNotNull { it.toLongOrNull() }
+            .filter { it > oneHourAgo }
+
+        if (validTimestamps.size >= 15) {
+            throw Exception("Rate limit exceeded: You can only create 15 drops per hour.")
+        }
+        
+        // Update valid timestamps
+        val newTimestampsStr = (validTimestamps + now).joinToString(",")
+        sharedPrefs.edit().putString("drop_timestamps", newTimestampsStr).apply()
+
         val uploadedImageUrl = uploadImageAndGetPublicUrl(Uri.parse(imagePath))
         val normalizedAudioPath = audioPath?.let { normalizeLocalPath(it) ?: it }
         val uploadedAudioUrl = audioPath?.let { path ->
@@ -64,21 +99,27 @@ class DropRepository(
         val currentUser = SupabaseManager.client.auth.currentUserOrNull()
         val authorName = currentUser?.userMetadata?.get("name")?.jsonPrimitive?.content
         val authorAvatarUrl = currentUser?.userMetadata?.get("avatar_url")?.jsonPrimitive?.content
+        
+        val dropId = UUID.randomUUID().toString()
 
         SupabaseManager.client.from("drops").insert(
             DropInsert(
+                id = dropId,
                 text = text,
                 imageUrl = uploadedImageUrl,
                 audioUrl = uploadedAudioUrl,
                 latitude = latitude,
                 longitude = longitude,
                 authorName = authorName,
-                authorAvatarUrl = authorAvatarUrl
+                authorAvatarUrl = authorAvatarUrl,
+                expiresAt = expiresAt?.let { Instant.ofEpochMilli(it).toString() },
+                isAnonymous = isAnonymous,
+                category = category
             )
         )
 
         val drop = Drop(
-            id = UUID.randomUUID().toString(),
+            id = dropId,
             text = text.take(120),
             imagePath = uploadedImageUrl,
             audioPath = uploadedAudioUrl ?: normalizedAudioPath,
@@ -86,7 +127,11 @@ class DropRepository(
             longitude = longitude,
             timestamp = System.currentTimeMillis(),
             authorName = authorName,
-            authorAvatarUrl = authorAvatarUrl
+            authorAvatarUrl = authorAvatarUrl,
+            authorId = currentUser?.id,
+            expiresAt = expiresAt,
+            isAnonymous = isAnonymous,
+            category = category
         )
         dao.insert(drop)
         return drop
@@ -106,8 +151,50 @@ class DropRepository(
         }
     }
 
+    suspend fun clearLocalCache() {
+        dao.deleteAll()
+    }
+
+    suspend fun syncMyDrops() {
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return
+        runCatching {
+            val remoteDrops = SupabaseManager.client.postgrest["drops"]
+                .select { filter { eq("user_id", currentUser.id) } }
+                .decodeList<NearbyDrop>()
+
+            val drops = remoteDrops.map { remote ->
+                Drop(
+                    id = remote.id,
+                    text = remote.text.take(120),
+                    imagePath = remote.imageUrl,
+                    audioPath = remote.audioUrl,
+                    latitude = remote.latitude,
+                    longitude = remote.longitude,
+                    timestamp = remote.createdAt?.let { Instant.parse(it).toEpochMilli() } ?: System.currentTimeMillis(),
+                    authorName = remote.authorName,
+                    authorAvatarUrl = remote.authorAvatarUrl,
+                    authorId = remote.authorId,
+                    expiresAt = remote.expiresAt?.let { Instant.parse(it).toEpochMilli() },
+                    isAnonymous = remote.isAnonymous,
+                    category = remote.category
+                )
+            }
+
+            // Wipe old local cache to prevent leaking drops from other accounts
+            dao.deleteAll()
+
+            // Upsert into local database
+            drops.forEach { drop ->
+                dao.insert(drop) // Since DropDao.insert has ON CONFLICT REPLACE, this is safe
+            }
+        }.onFailure {
+            it.printStackTrace()
+        }
+    }
+
     suspend fun deleteAllDrops() {
-        val existing = dao.getAllOnce()
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull()
+        val existing = if (currentUser != null) dao.getAllOnce(currentUser.id) else emptyList()
         
         // Delete locally
         dao.deleteAll()
@@ -117,7 +204,6 @@ class DropRepository(
         }
         
         // Delete remotely for current user
-        val currentUser = SupabaseManager.client.auth.currentUserOrNull()
         val authorName = currentUser?.userMetadata?.get("name")?.jsonPrimitive?.content
         if (authorName != null) {
             runCatching {
@@ -162,10 +248,27 @@ class DropRepository(
         val local = getLocalDropsNear(lat, lon, radiusMeters, maxItems)
             .filter { it.first.timestamp >= wipeTimestamp }
 
+        val reportedDrops = sharedPrefs.getStringSet("reported_drops", emptySet()) ?: emptySet()
+        val blockedUsers = sharedPrefs.getStringSet("blocked_users", emptySet()) ?: emptySet()
+
         return (remote + local)
             .distinctBy { it.first.id }
+            .filter { !reportedDrops.contains(it.first.id) }
+            .filter { it.first.authorName == null || !blockedUsers.contains(it.first.authorName) }
             .sortedBy { it.second }
             .take(maxItems)
+    }
+
+    fun reportDrop(dropId: String) {
+        val reported = sharedPrefs.getStringSet("reported_drops", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+        reported.add(dropId)
+        sharedPrefs.edit().putStringSet("reported_drops", reported).apply()
+    }
+
+    fun blockUser(authorName: String) {
+        val blocked = sharedPrefs.getStringSet("blocked_users", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+        blocked.add(authorName)
+        sharedPrefs.edit().putStringSet("blocked_users", blocked).apply()
     }
 
     suspend fun startRealtimeDrops() {
@@ -179,7 +282,8 @@ class DropRepository(
     }
 
     suspend fun cleanupOrphanMedia() {
-        val existing = dao.getAllOnce()
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull()
+        val existing = if (currentUser != null) dao.getAllOnce(currentUser.id) else emptyList()
         val existingPaths = existing
             .flatMap { drop ->
                 buildList {
@@ -290,7 +394,12 @@ class DropRepository(
                     latitude = remote.latitude,
                     longitude = remote.longitude,
                     timestamp = parseTimestamp(remote.createdAt),
-                    authorName = remote.authorName
+                    authorName = remote.authorName,
+                    authorAvatarUrl = remote.authorAvatarUrl,
+                    authorId = remote.authorId,
+                    expiresAt = remote.expiresAt?.let { parseTimestamp(it) },
+                    isAnonymous = remote.isAnonymous,
+                    category = remote.category
                 )
 
                 val dist = remote.distanceMeters?.toFloat()
@@ -311,9 +420,9 @@ class DropRepository(
         radiusMeters: Float,
         maxItems: Int
     ): List<Pair<Drop, Float>> {
-        // Rough bounding box: ~0.001 degrees ≈ 111 meters
-        val delta = (radiusMeters / 111_000.0) * 1.5
-        val candidates = dao.getInBoundingBox(lat, lon, delta)
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull()
+        // Fetch all local drops and compute distance in memory to avoid SQLite floating point precision issues
+        val candidates = if (currentUser != null) dao.getAllOnce(currentUser.id) else emptyList()
 
         return candidates
             .filter { it.text.isNotBlank() }
@@ -332,5 +441,224 @@ class DropRepository(
         if (createdAt.isNullOrBlank()) return System.currentTimeMillis()
         return runCatching { Instant.parse(createdAt).toEpochMilli() }
             .getOrDefault(System.currentTimeMillis())
+    }
+
+    // --- Social & Notification Features ---
+
+    suspend fun getDropLikes(dropId: String): Int {
+        return runCatching {
+            val countResponse = SupabaseManager.client.postgrest["drop_likes"]
+                .select { filter { eq("drop_id", dropId) } }
+                .decodeList<DropLike>()
+            countResponse.size
+        }.getOrDefault(0)
+    }
+
+    fun getDropLikesFlow(dropId: String): Flow<Int> = kotlinx.coroutines.flow.flow {
+        emit(getDropLikes(dropId))
+        val channel = SupabaseManager.client.channel("likes-$dropId")
+        val changes = channel.postgresChangeFlow<PostgresAction>("public") {
+            table = "drop_likes"
+            filter = "drop_id=eq.$dropId"
+        }
+        channel.subscribe()
+        try {
+            changes.collect {
+                emit(getDropLikes(dropId))
+            }
+        } finally {
+            channel.unsubscribe()
+        }
+    }
+
+    fun getCommentsFlow(dropId: String): Flow<List<DropComment>> = kotlinx.coroutines.flow.flow {
+        emit(getComments(dropId))
+        val channel = SupabaseManager.client.channel("comments-$dropId")
+        val changes = channel.postgresChangeFlow<PostgresAction>("public") {
+            table = "drop_comments"
+            filter = "drop_id=eq.$dropId"
+        }
+        channel.subscribe()
+        try {
+            changes.collect {
+                emit(getComments(dropId))
+            }
+        } finally {
+            channel.unsubscribe()
+        }
+    }
+
+    suspend fun isDropLikedByMe(dropId: String): Boolean {
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return false
+        return runCatching {
+            val response = SupabaseManager.client.postgrest["drop_likes"]
+                .select { 
+                    filter { 
+                        eq("drop_id", dropId)
+                        eq("user_id", currentUser.id)
+                    } 
+                }.decodeList<DropLike>()
+            response.isNotEmpty()
+        }.getOrDefault(false)
+    }
+
+    suspend fun likeDrop(drop: Drop) {
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return
+        runCatching {
+            SupabaseManager.client.postgrest["drop_likes"].insert(
+                com.somewhere.app.data.remote.DropLike(
+                    id = java.util.UUID.randomUUID().toString(),
+                    userId = currentUser.id, 
+                    dropId = drop.id
+                )
+            )
+            
+            // Send Notification to author
+            val currentName = currentUser.userMetadata?.get("name")?.jsonPrimitive?.content ?: "Someone"
+            if (drop.authorId != null && drop.authorId != currentUser.id) {
+                SupabaseManager.client.postgrest["notifications"].insert(
+                    com.somewhere.app.data.remote.NotificationItem(
+                        id = java.util.UUID.randomUUID().toString(),
+                        userId = drop.authorId,
+                        actorName = currentName,
+                        type = "like",
+                        dropId = drop.id,
+                        message = "$currentName liked your drop!"
+                    )
+                )
+            }
+        }.onFailure {
+            println("!!! CRITICAL BACKEND ERROR IN LIKEDROP: ${it.message}")
+            it.printStackTrace()
+            android.util.Log.e("DropRepository", "Failed to like drop: ${it.message}", it)
+        }
+    }
+
+    suspend fun unlikeDrop(dropId: String) {
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return
+        runCatching {
+            SupabaseManager.client.postgrest["drop_likes"].delete {
+                filter { 
+                    eq("drop_id", dropId)
+                    eq("user_id", currentUser.id)
+                }
+            }
+        }
+    }
+
+    suspend fun getComments(dropId: String): List<DropComment> {
+        return runCatching {
+            SupabaseManager.client.postgrest["drop_comments"]
+                .select { filter { eq("drop_id", dropId) } }
+                .decodeList<DropComment>()
+                .sortedBy { it.createdAt }
+        }.getOrDefault(emptyList())
+    }
+
+    suspend fun addComment(drop: Drop, text: String) {
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return
+        
+        // Client-side rate limiting: Max 8 comments per 5 minutes
+        val commentTimestampsStr = sharedPrefs.getString("comment_timestamps", "") ?: ""
+        val now = System.currentTimeMillis()
+        val fiveMinsAgo = now - 5 * 60 * 1000
+        val validTimestamps = commentTimestampsStr.split(",")
+            .mapNotNull { it.toLongOrNull() }
+            .filter { it > fiveMinsAgo }
+
+        if (validTimestamps.size >= 8) {
+            throw Exception("couldnt comment. try again in sometime.")
+        }
+        
+        // Update valid timestamps
+        val newTimestampsStr = (validTimestamps + now).joinToString(",")
+        sharedPrefs.edit().putString("comment_timestamps", newTimestampsStr).apply()
+        
+        val currentName = currentUser.userMetadata?.get("name")?.jsonPrimitive?.content ?: "Anonymous"
+        val currentAvatar = currentUser.userMetadata?.get("avatar_url")?.jsonPrimitive?.content
+        runCatching {
+            SupabaseManager.client.postgrest["drop_comments"].insert(
+                com.somewhere.app.data.remote.DropComment(
+                    id = java.util.UUID.randomUUID().toString(),
+                    userId = currentUser.id,
+                    dropId = drop.id,
+                    authorName = currentName,
+                    authorAvatarUrl = currentAvatar,
+                    text = text
+                )
+            )
+
+            // Send Notification
+            if (drop.authorId != null && drop.authorId != currentUser.id) {
+                SupabaseManager.client.postgrest["notifications"].insert(
+                    com.somewhere.app.data.remote.NotificationItem(
+                        id = java.util.UUID.randomUUID().toString(),
+                        userId = drop.authorId,
+                        actorName = currentName,
+                        type = "comment",
+                        dropId = drop.id,
+                        message = "$currentName commented: \"${text.take(30)}${if(text.length > 30) "..." else ""}\""
+                    )
+                )
+            }
+        }.onFailure {
+            println("!!! CRITICAL BACKEND ERROR IN ADDCOMMENT: ${it.message}")
+            it.printStackTrace()
+            android.util.Log.e("DropRepository", "Failed to add comment: ${it.message}", it)
+        }
+    }
+
+    suspend fun unlockDrop(dropId: String) {
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return
+        runCatching {
+            SupabaseManager.client.postgrest["unlocked_drops"].insert(
+                com.somewhere.app.data.remote.UnlockedDrop(
+                    id = java.util.UUID.randomUUID().toString(),
+                    userId = currentUser.id, 
+                    dropId = dropId
+                )
+            )
+        }.onFailure {
+            println("!!! CRITICAL BACKEND ERROR IN UNLOCKDROP: ${it.message}")
+            it.printStackTrace()
+        }
+    }
+
+    suspend fun getUnlockedDrops(): List<Drop> {
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return emptyList()
+        return runCatching {
+            val unlocked = SupabaseManager.client.postgrest["unlocked_drops"]
+                .select { filter { eq("user_id", currentUser.id) } }
+                .decodeList<UnlockedDrop>()
+                
+            if (unlocked.isEmpty()) return@runCatching emptyList()
+
+            val ids = unlocked.map { it.dropId }
+            
+            val dropsResponse = SupabaseManager.client.postgrest["drops"]
+                .select { filter { isIn("id", ids) } }
+                .decodeList<NearbyDrop>()
+
+            dropsResponse.map { remote ->
+                Drop(
+                    id = remote.id,
+                    text = remote.text.take(120),
+                    imagePath = remote.imageUrl,
+                    audioPath = remote.audioUrl,
+                    latitude = remote.latitude,
+                    longitude = remote.longitude,
+                    timestamp = parseTimestamp(remote.createdAt),
+                    authorName = remote.authorName,
+                    authorAvatarUrl = remote.authorAvatarUrl,
+                    authorId = remote.authorId,
+                    expiresAt = remote.expiresAt?.let { parseTimestamp(it) },
+                    isAnonymous = remote.isAnonymous,
+                    category = remote.category
+                )
+            }.sortedByDescending { it.timestamp }
+        }.onFailure {
+            println("!!! CRITICAL BACKEND ERROR IN GETUNLOCKEDDROPS: ${it.message}")
+            it.printStackTrace()
+        }.getOrDefault(emptyList())
     }
 }

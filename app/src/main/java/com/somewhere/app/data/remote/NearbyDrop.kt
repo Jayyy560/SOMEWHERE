@@ -14,5 +14,9 @@ data class NearbyDrop(
     @SerialName("created_at") val createdAt: String? = null,
     @SerialName("distance_m") val distanceMeters: Double? = null,
     @SerialName("author_name") val authorName: String? = null,
-    @SerialName("author_avatar_url") val authorAvatarUrl: String? = null
+    @SerialName("author_avatar_url") val authorAvatarUrl: String? = null,
+    @SerialName("user_id") val authorId: String? = null,
+    @SerialName("expires_at") val expiresAt: String? = null,
+    @SerialName("is_anonymous") val isAnonymous: Boolean = false,
+    val category: String? = null
 )

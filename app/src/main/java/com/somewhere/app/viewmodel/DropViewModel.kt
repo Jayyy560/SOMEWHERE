@@ -29,7 +29,12 @@ class DropViewModel @Inject constructor(
         val text: String = "",
         val isSaving: Boolean = false,
         val isSaved: Boolean = false,
-        val error: String? = null
+        val error: String? = null,
+        val isMoment: Boolean = false,
+        val durationMs: Long = 3600000L, // 1 hour default
+        val customDurationLabel: String? = null,
+        val category: String = "Story",
+        val isAnonymous: Boolean = false
     )
 
     private val _uiState = MutableStateFlow(DropUiState())
@@ -43,6 +48,22 @@ class DropViewModel @Inject constructor(
         if (text.length <= 120) {
             _uiState.value = _uiState.value.copy(text = text)
         }
+    }
+
+    fun setDropType(isMoment: Boolean) {
+        _uiState.value = _uiState.value.copy(isMoment = isMoment)
+    }
+
+    fun setDuration(durationMs: Long, customLabel: String? = null) {
+        _uiState.value = _uiState.value.copy(durationMs = durationMs, customDurationLabel = customLabel)
+    }
+
+    fun setCategory(category: String) {
+        _uiState.value = _uiState.value.copy(category = category)
+    }
+
+    fun setAnonymous(isAnonymous: Boolean) {
+        _uiState.value = _uiState.value.copy(isAnonymous = isAnonymous)
     }
 
     fun generateAiDrop(context: Context) {
@@ -80,12 +101,16 @@ class DropViewModel @Inject constructor(
 
         viewModelScope.launch {
             try {
+                val expiresAt = if (state.isMoment) System.currentTimeMillis() + state.durationMs else null
                 repository.saveDrop(
                     text = state.text,
                     imagePath = imageUri.toString(),
                     audioPath = state.recordedAudioUri?.toString(),
                     latitude = latitude,
-                    longitude = longitude
+                    longitude = longitude,
+                    expiresAt = expiresAt,
+                    isAnonymous = state.isAnonymous,
+                    category = state.category
                 )
                 _uiState.value = _uiState.value.copy(isSaving = false, isSaved = true)
             } catch (e: Exception) {

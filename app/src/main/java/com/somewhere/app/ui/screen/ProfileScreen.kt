@@ -23,6 +23,7 @@ import coil.compose.AsyncImage
 import com.somewhere.app.data.model.Drop
 import com.somewhere.app.data.remote.SupabaseManager
 import com.somewhere.app.ui.component.DropDetailSheet
+import com.somewhere.app.ui.component.shimmerEffect
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.viewmodel.ProfileViewModel
 import io.github.jan.supabase.gotrue.auth
@@ -31,13 +32,30 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.res.painterResource
 import com.somewhere.app.R
 
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.LockOpen
+
 @Composable
 fun ProfileScreen(
     onBack: () -> Unit,
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val myDrops by viewModel.myDrops.collectAsState()
+    val unlockedDrops by viewModel.unlockedDrops.collectAsState()
     var selectedDrop by remember { mutableStateOf<Drop?>(null) }
+    var selectedTabIndex by remember { mutableStateOf(0) }
+    var showSettingsMenu by remember { mutableStateOf(false) }
+
+    LaunchedEffect(selectedTabIndex) {
+        if (selectedTabIndex == 1) {
+            viewModel.refreshUnlockedDrops()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -51,19 +69,41 @@ fun ProfileScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                IconButton(onClick = onBack) {
-                    Icon(
-                        imageVector = Icons.Default.ArrowBack,
-                        contentDescription = "Back",
-                        tint = SomewhereColors.TextPrimary
-                    )
+                Spacer(modifier = Modifier.weight(1f))
+                
+                Box {
+                    IconButton(onClick = { showSettingsMenu = true }) {
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = "Settings",
+                            tint = SomewhereColors.TextPrimary
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showSettingsMenu,
+                        onDismissRequest = { showSettingsMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Log Out") },
+                            onClick = {
+                                showSettingsMenu = false
+                                viewModel.logOut { onBack() }
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Delete Account Data") },
+                            onClick = {
+                                showSettingsMenu = false
+                                viewModel.deleteAccount { onBack() }
+                            }
+                        )
+                    }
                 }
-                
-                Spacer(modifier = Modifier.width(8.dp))
             }
-                
+
             // Profile Info Header
             val user = SupabaseManager.client.auth.currentUserOrNull()
             val name = user?.userMetadata?.get("name")?.jsonPrimitive?.content ?: "Profile"
@@ -114,39 +154,67 @@ fun ProfileScreen(
                     color = SomewhereColors.TextPrimary
                 )
                 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(16.dp))
                 
-                Row(
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
+                TabRow(
+                    selectedTabIndex = selectedTabIndex,
+                    containerColor = SomewhereColors.Background,
+                    contentColor = SomewhereColors.TextPrimary
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "${myDrops.size}",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = SomewhereColors.TextPrimary
-                        )
-                        Text(
-                            text = "Drops",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = SomewhereColors.TextSecondary
-                        )
-                    }
+                    Tab(
+                        selected = selectedTabIndex == 0,
+                        onClick = { selectedTabIndex = 0 },
+                        text = { Text("My Drops (${myDrops.size})") }
+                    )
+                    Tab(
+                        selected = selectedTabIndex == 1,
+                        onClick = { selectedTabIndex = 1 },
+                        text = { Text("Discovered (${unlockedDrops.size})") }
+                    )
                 }
             }
             
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Grid
-            if (myDrops.isEmpty()) {
-                Box(
+            val currentList = if (selectedTabIndex == 0) myDrops else unlockedDrops
+            val isLoading by viewModel.isLoading.collectAsState()
+
+            if (isLoading) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
                     modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+                    contentPadding = PaddingValues(2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
+                    items(12) {
+                        Box(
+                            modifier = Modifier
+                                .aspectRatio(1f)
+                                .clip(MaterialTheme.shapes.small)
+                                .shimmerEffect()
+                        )
+                    }
+                }
+            } else if (currentList.isEmpty()) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = if (selectedTabIndex == 0) androidx.compose.material.icons.Icons.Default.LocationOn else androidx.compose.material.icons.Icons.Default.LockOpen,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = SomewhereColors.TextMuted
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = "You haven't dropped anything yet.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = SomewhereColors.TextSecondary
+                        text = if (selectedTabIndex == 0) "It's quiet here...\nBe the first to leave a mark!" else "You haven't discovered any drops yet.\nGet out there and explore!",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = SomewhereColors.TextSecondary,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
                 }
             } else {
@@ -157,7 +225,7 @@ fun ProfileScreen(
                     horizontalArrangement = Arrangement.spacedBy(2.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    items(myDrops) { drop ->
+                    items(currentList) { drop ->
                         ProfileGridItem(
                             drop = drop,
                             onClick = { selectedDrop = drop }
@@ -175,6 +243,7 @@ fun ProfileScreen(
                     viewModel.deleteDrop(drop)
                     selectedDrop = null
                 },
+                onBlock = {},
                 onReport = {
                     selectedDrop = null
                 }

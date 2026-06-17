@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -19,6 +20,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -114,12 +117,82 @@ fun AuthScreen(
             )
         }
 
+        if (uiState.mode == AuthViewModel.Mode.SIGN_IN) {
+            Spacer(Modifier.height(8.dp))
+            TextButton(
+                onClick = viewModel::resetPassword,
+                modifier = Modifier.align(Alignment.End)
+            ) {
+                Text("Forgot Password?", color = SomewhereColors.TextMuted)
+            }
+        }
+
         Spacer(Modifier.height(20.dp))
+
+        var isAgreed by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+        var activeLegalDoc by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
+
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            androidx.compose.material3.Checkbox(
+                checked = isAgreed,
+                onCheckedChange = { isAgreed = it },
+                colors = androidx.compose.material3.CheckboxDefaults.colors(
+                    checkedColor = SomewhereColors.GlowAccent,
+                    uncheckedColor = SomewhereColors.TextMuted
+                )
+            )
+            
+            val annotatedString = androidx.compose.ui.text.buildAnnotatedString {
+                append("I agree to the ")
+                pushStringAnnotation("TOS", "Terms of Service")
+                withStyle(androidx.compose.ui.text.SpanStyle(color = SomewhereColors.GlowAccent, fontWeight = FontWeight.Bold)) {
+                    append("Terms of Service")
+                }
+                pop()
+                append(", ")
+                pushStringAnnotation("PRIVACY", "Privacy Policy")
+                withStyle(androidx.compose.ui.text.SpanStyle(color = SomewhereColors.GlowAccent, fontWeight = FontWeight.Bold)) {
+                    append("Privacy Policy")
+                }
+                pop()
+                append(", and ")
+                pushStringAnnotation("COMMUNITY", "Community Guidelines")
+                withStyle(androidx.compose.ui.text.SpanStyle(color = SomewhereColors.GlowAccent, fontWeight = FontWeight.Bold)) {
+                    append("Community Guidelines")
+                }
+                pop()
+                append(".")
+            }
+
+            val context = LocalContext.current
+            val openLegalUrl = {
+                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://somewhere-privacy-policy.vercel.app/"))
+                context.startActivity(intent)
+            }
+
+            ClickableText(
+                text = annotatedString,
+                onClick = { offset ->
+                    annotatedString.getStringAnnotations("TOS", offset, offset).firstOrNull()?.let { openLegalUrl() }
+                    annotatedString.getStringAnnotations("PRIVACY", offset, offset).firstOrNull()?.let { openLegalUrl() }
+                    annotatedString.getStringAnnotations("COMMUNITY", offset, offset).firstOrNull()?.let { openLegalUrl() }
+                },
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = SomewhereColors.TextSecondary,
+                    textAlign = TextAlign.Center
+                )
+            )
+        }
+
+        Spacer(Modifier.height(16.dp))
 
         SomewhereButton(
             text = if (uiState.mode == AuthViewModel.Mode.SIGN_IN) "Sign in" else "Sign up",
             onClick = viewModel::submit,
-            enabled = !uiState.isLoading,
+            enabled = !uiState.isLoading && isAgreed,
             modifier = Modifier.fillMaxWidth()
         )
 

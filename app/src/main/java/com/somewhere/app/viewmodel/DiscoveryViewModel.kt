@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -57,7 +58,8 @@ class DiscoveryViewModel @Inject constructor(
         val isSummarizing: Boolean = false,
         val summaryText: String? = null,
         val isCurating: Boolean = false,
-        val curatedDrop: Pair<String, String>? = null // (Intro, Text)
+        val curatedDrop: Pair<String, String>? = null, // (Intro, Text)
+        val selectedCategory: String? = null
     )
 
     private val _uiState = MutableStateFlow(DiscoveryUiState())
@@ -131,6 +133,21 @@ class DiscoveryViewModel @Inject constructor(
             .build()
 
         try {
+            // Fetch immediately so stationary emulators/devices don't hang waiting for an update
+            // Use getCurrentLocation instead of lastLocation to ensure high accuracy matching the DropScreen
+            fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, com.google.android.gms.tasks.CancellationTokenSource().token)
+                .addOnSuccessListener { location ->
+                    if (location != null) {
+                        _uiState.value = _uiState.value.copy(
+                            userLat = location.latitude,
+                            userLon = location.longitude,
+                            hasLocation = true,
+                            locationAccuracyMeters = location.accuracy
+                        )
+                        fetchNearbyDrops(location.latitude, location.longitude)
+                    }
+                }
+            
             fusedLocationClient.requestLocationUpdates(
                 request, locationCallback, Looper.getMainLooper()
             )
@@ -161,7 +178,22 @@ class DiscoveryViewModel @Inject constructor(
     }
 
     fun selectDrop(drop: DiscoveredDrop?) {
-        _uiState.value = _uiState.value.copy(selectedDrop = drop)
+        _uiState.update { it.copy(selectedDrop = drop) }
+        
+        // Record unlock in backend
+        if (drop != null) {
+            viewModelScope.launch {
+                repository.unlockDrop(drop.drop.id)
+            }
+        }
+    }
+
+    fun setCategoryFilter(category: String?) {
+        _uiState.value = _uiState.value.copy(selectedCategory = category)
+        val state = _uiState.value
+        if (state.hasLocation) {
+            fetchNearbyDrops(state.userLat, state.userLon)
+        }
     }
 
     fun clearMessage() {
@@ -181,10 +213,21 @@ class DiscoveryViewModel @Inject constructor(
 
     fun reportDrop(item: DiscoveredDrop) {
         viewModelScope.launch {
-            repository.deleteDrop(item.drop)
+            repository.reportDrop(item.drop.id)
             _uiState.value = _uiState.value.copy(
                 selectedDrop = null,
-                message = "Reported and removed locally"
+                message = "Drop reported. It will no longer be visible to you."
+            )
+            fetchNearbyDrops(_uiState.value.userLat, _uiState.value.userLon)
+        }
+    }
+
+    fun blockUser(authorName: String) {
+        viewModelScope.launch {
+            repository.blockUser(authorName)
+            _uiState.value = _uiState.value.copy(
+                selectedDrop = null,
+                message = "User blocked. Their drops will no longer be visible."
             )
             fetchNearbyDrops(_uiState.value.userLat, _uiState.value.userLon)
         }
@@ -242,9 +285,17 @@ class DiscoveryViewModel @Inject constructor(
     private fun fetchNearbyDrops(lat: Double, lon: Double) {
         viewModelScope.launch {
             val nearbyWithDistance = repository.getDropsNear(lat, lon)
+            val currentCategory = _uiState.value.selectedCategory
+            
+            val filtered = if (currentCategory != null) {
+                nearbyWithDistance.filter { it.first.category == currentCategory }
+            } else {
+                nearbyWithDistance
+            }
+
             val previousIds = _uiState.value.nearbyDrops.map { it.drop.id }.toSet()
 
-            val discovered = nearbyWithDistance.mapIndexed { index, (drop, distance) ->
+            val discovered = filtered.mapIndexed { index, (drop, distance) ->
                 val bearing = LocationUtils.bearing(lat, lon, drop.latitude, drop.longitude)
                 val angle = LocationUtils.angleDifference(currentHeading, bearing)
                 val isNew = drop.id !in discoveredIds

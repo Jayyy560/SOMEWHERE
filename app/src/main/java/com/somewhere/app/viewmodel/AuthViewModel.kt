@@ -54,6 +54,32 @@ class AuthViewModel @Inject constructor() : ViewModel() {
             _uiState.value = state.copy(errorMessage = "Email and password required")
             return
         }
+
+        if (!android.util.Patterns.EMAIL_ADDRESS.matcher(state.email.trim()).matches()) {
+            _uiState.value = state.copy(errorMessage = "Invalid email format")
+            return
+        }
+
+        if (state.password.length < 8) {
+            _uiState.value = state.copy(errorMessage = "Password must be at least 8 characters")
+            return
+        }
+
+        if (state.password.length > 64) {
+            _uiState.value = state.copy(errorMessage = "Password cannot exceed 64 characters")
+            return
+        }
+
+        val hasUpper = state.password.any { it.isUpperCase() }
+        val hasLower = state.password.any { it.isLowerCase() }
+        val hasDigit = state.password.any { it.isDigit() }
+        val hasSymbol = state.password.any { !it.isLetterOrDigit() }
+
+        if (!hasUpper || !hasLower || !hasDigit || !hasSymbol) {
+            _uiState.value = state.copy(errorMessage = "Password must contain uppercase, lowercase, number, and symbol")
+            return
+        }
+
         if (state.mode == Mode.SIGN_UP && state.name.isBlank()) {
             _uiState.value = state.copy(errorMessage = "Name is required for sign up")
             return
@@ -80,6 +106,25 @@ class AuthViewModel @Inject constructor() : ViewModel() {
             _uiState.value = _uiState.value.copy(
                 isLoading = false,
                 errorMessage = result.exceptionOrNull()?.message
+            )
+        }
+    }
+
+    fun resetPassword() {
+        val state = _uiState.value
+        if (state.email.isBlank()) {
+            _uiState.value = state.copy(errorMessage = "Please enter your email to reset password")
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.value = state.copy(isLoading = true, errorMessage = null)
+            val result = runCatching {
+                com.somewhere.app.data.remote.SupabaseManager.resetPasswordForEmail(state.email.trim())
+            }
+            _uiState.value = _uiState.value.copy(
+                isLoading = false,
+                errorMessage = result.exceptionOrNull()?.message ?: "Password reset email sent!"
             )
         }
     }

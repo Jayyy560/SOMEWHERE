@@ -8,6 +8,7 @@ plugins {
     id("org.jetbrains.kotlin.kapt")
     id("com.google.dagger.hilt.android")
     id("com.google.devtools.ksp")
+    id("io.sentry.android.gradle")
 }
 
 val localProperties = Properties().apply {
@@ -122,7 +123,8 @@ dependencies {
 
     // Supabase (backend)
     implementation("io.github.jan-tennert.supabase:postgrest-kt:2.5.4")
-    implementation("io.github.jan-tennert.supabase:realtime-kt:2.5.4")
+    implementation("io.github.jan-tennert.supabase:realtime-kt:2.6.1")
+    implementation("io.sentry:sentry-android:7.14.0")
     implementation("io.github.jan-tennert.supabase:storage-kt:2.5.4")
     implementation("io.github.jan-tennert.supabase:gotrue-kt:2.5.4")
     implementation("io.ktor:ktor-client-okhttp:2.3.12")

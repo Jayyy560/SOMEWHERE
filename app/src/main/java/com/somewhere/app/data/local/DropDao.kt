@@ -10,11 +10,11 @@ interface DropDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(drop: Drop)
 
-    @Query("SELECT * FROM drops ORDER BY timestamp DESC")
-    fun getAll(): Flow<List<Drop>>
+    @Query("SELECT * FROM drops WHERE authorId = :userId ORDER BY timestamp DESC")
+    fun getAll(userId: String): Flow<List<Drop>>
 
-    @Query("SELECT * FROM drops")
-    suspend fun getAllOnce(): List<Drop>
+    @Query("SELECT * FROM drops WHERE authorId = :userId")
+    suspend fun getAllOnce(userId: String): List<Drop>
 
     @Query("DELETE FROM drops WHERE id = :id")
     suspend fun deleteById(id: String)

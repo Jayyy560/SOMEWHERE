@@ -34,6 +34,16 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="somewhere" android:host="reset" />
+            </intent-filter>
         </activity>
+
+        <!-- Sentry Error Tracking -->
+        <meta-data android:name="io.sentry.dsn" android:value="https://06fb4af5a32a9028b7fd459068a1c7e2@o4511570601246720.ingest.de.sentry.io/4511570607145040" />
     </application>
 </manifest>

@@ -12,12 +12,16 @@ import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.platform.LocalView
+import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.LocationOn
@@ -29,6 +33,15 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import com.somewhere.app.SomewhereApplication
+import com.somewhere.app.data.remote.DropComment
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,6 +62,7 @@ import coil.compose.AsyncImage
 import com.somewhere.app.R
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.util.LocationUtils
+import com.somewhere.app.util.getCategoryIcon
 import com.somewhere.app.util.rememberReduceMotionEnabled
 import com.somewhere.app.data.model.Drop
 import java.text.SimpleDateFormat
@@ -69,6 +83,7 @@ fun DropDetailSheet(
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
     onReport: () -> Unit,
+    onBlock: () -> Unit,
     onFindSpot: (String) -> Unit = {}
 ) {
     var expanded by remember { mutableStateOf(false) }
@@ -78,6 +93,39 @@ fun DropDetailSheet(
     var player by remember { mutableStateOf<MediaPlayer?>(null) }
     var isAudioPlaying by remember { mutableStateOf(false) }
     var showActions by remember { mutableStateOf(false) }
+
+    val context = LocalContext.current
+    val repository = remember { (context.applicationContext as SomewhereApplication).repository }
+    
+    var isLiked by remember { mutableStateOf(false) }
+    var likeCount by remember { mutableStateOf(0) }
+    var comments by remember { mutableStateOf<List<DropComment>>(emptyList()) }
+    var commentText by remember { mutableStateOf("") }
+    
+    LaunchedEffect(drop.id) {
+        isLiked = repository.isDropLikedByMe(drop.id)
+        
+        launch {
+            repository.getDropLikesFlow(drop.id).collect { count ->
+                likeCount = count
+            }
+        }
+        
+        launch {
+            repository.getCommentsFlow(drop.id).collect { lst ->
+                comments = lst
+            }
+        }
+    }
+
+    val view = LocalView.current
+    var isLikeAnimating by remember { mutableStateOf(false) }
+    val likeScaleAnim by animateFloatAsState(
+        targetValue = if (isLikeAnimating) 1.5f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioHighBouncy),
+        finishedListener = { isLikeAnimating = false },
+        label = "likeScale"
+    )
 
     val scaleAnim by animateFloatAsState(
         targetValue = if (expanded) 1f else 0.85f,
@@ -238,7 +286,7 @@ fun DropDetailSheet(
             }
 
             // Author Name
-            if (!drop.authorName.isNullOrBlank()) {
+            if (!drop.isAnonymous && !drop.authorName.isNullOrBlank()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -380,9 +428,10 @@ fun DropDetailSheet(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    val catIcon = getCategoryIcon(drop.category, drop.isAnonymous)
                     Icon(
-                        imageVector = Icons.Default.LocationOn,
-                        contentDescription = null,
+                        imageVector = catIcon,
+                        contentDescription = drop.category,
                         modifier = Modifier.size(14.dp),
                         tint = SomewhereColors.GlowAccent
                     )
@@ -405,22 +454,41 @@ fun DropDetailSheet(
                     }
                 }
 
-                // Timestamp with icon
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Schedule,
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = SomewhereColors.TextMuted
-                    )
-                    Text(
-                        text = formatTimestamp(drop.timestamp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = SomewhereColors.TextSecondary
-                    )
+                    if (drop.expiresAt != null) {
+                        val remainingMs = drop.expiresAt - System.currentTimeMillis()
+                        if (remainingMs > 0) {
+                            val hours = remainingMs / (1000 * 60 * 60)
+                            val mins = (remainingMs / (1000 * 60)) % 60
+                            val expText = if (hours > 0) "${hours}h left" else "${mins}m left"
+                            Text(
+                                text = expText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = SomewhereColors.GlowAccent
+                            )
+                        } else {
+                            Text(
+                                text = "Expired",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = SomewhereColors.Error
+                            )
+                        }
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = SomewhereColors.TextMuted
+                        )
+                        Text(
+                            text = formatTimestamp(drop.timestamp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SomewhereColors.TextSecondary
+                        )
+                    }
                 }
             }
 
@@ -440,6 +508,18 @@ fun DropDetailSheet(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Block
+                        IconButton(
+                            onClick = onBlock,
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Block,
+                                contentDescription = "Block User",
+                                modifier = Modifier.size(18.dp),
+                                tint = SomewhereColors.TextMuted
+                            )
+                        }
                         // Report
                         IconButton(
                             onClick = onReport,
@@ -478,6 +558,115 @@ fun DropDetailSheet(
                         modifier = Modifier.size(18.dp),
                         tint = SomewhereColors.TextMuted
                     )
+                }
+            }
+            
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                    if (!isLiked) {
+                        isLikeAnimating = true
+                    }
+                    scope.launch {
+                        if (isLiked) {
+                            repository.unlikeDrop(drop.id)
+                            likeCount--
+                        } else {
+                            repository.likeDrop(drop)
+                            likeCount++
+                        }
+                        isLiked = !isLiked
+                    }
+                }) {
+                    Icon(
+                        imageVector = if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = "Like",
+                        tint = if (isLiked) Color.Red else SomewhereColors.TextMuted,
+                        modifier = Modifier.scale(likeScaleAnim)
+                    )
+                }
+                Text(
+                    text = "$likeCount",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = SomewhereColors.TextSecondary
+                )
+                
+                Spacer(modifier = Modifier.width(16.dp))
+                
+                Icon(
+                    imageVector = Icons.Default.ChatBubbleOutline,
+                    contentDescription = "Comments",
+                    tint = SomewhereColors.TextMuted,
+                    modifier = Modifier.padding(end = 4.dp)
+                )
+                Text(
+                    text = "${comments.size}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = SomewhereColors.TextSecondary
+                )
+            }
+            
+            // Comments Section
+            Box(modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .heightIn(max = 200.dp)) {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(vertical = 8.dp)
+                ) {
+                    items(comments) { comment ->
+                        Row(verticalAlignment = Alignment.Top) {
+                            Text(
+                                text = comment.authorName ?: "Anonymous",
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                color = SomewhereColors.TextPrimary,
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                            Text(
+                                text = comment.text,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = SomewhereColors.TextSecondary
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Post Comment
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = commentText,
+                    onValueChange = { commentText = it },
+                    placeholder = { Text("Add a comment...", style = MaterialTheme.typography.bodySmall) },
+                    modifier = Modifier.weight(1f).height(50.dp),
+                    textStyle = MaterialTheme.typography.bodySmall,
+                    singleLine = true
+                )
+                val context = androidx.compose.ui.platform.LocalContext.current
+                IconButton(onClick = {
+                    if (commentText.isNotBlank()) {
+                        scope.launch {
+                            try {
+                                repository.addComment(drop, commentText)
+                                commentText = ""
+                            } catch (e: Exception) {
+                                android.widget.Toast.makeText(context, e.message ?: "couldnt comment. try again in sometime.", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                }) {
+                    Icon(Icons.Default.Send, contentDescription = "Send", tint = SomewhereColors.GlowAccent)
                 }
             }
             

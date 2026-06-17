@@ -7,11 +7,11 @@ import kotlin.math.*
  */
 object LocationUtils {
 
-    const val DISCOVERY_RADIUS = 100f   // meters — max radius to show drops
-    const val UNLOCK_RADIUS = 15f       // meters — drops become tappable within this
-    const val MAX_VISIBLE = 8           // max overlays shown at once
+    const val DISCOVERY_RADIUS = 500f   // meters — max radius to show drops
+    const val UNLOCK_RADIUS = 20f       // meters — drops become tappable within this
+    const val MAX_VISIBLE = 15          // max overlays shown at once
     const val ACCURACY_WARNING_METERS = 35f
-    const val HYSTERESIS_MARGIN = 10f   // extra meters before removing a visible drop
+    const val HYSTERESIS_MARGIN = 20f   // extra meters before removing a visible drop
 
     /**
      * Haversine distance between two GPS points in meters.
@@ -20,14 +20,9 @@ object LocationUtils {
         lat1: Double, lon1: Double,
         lat2: Double, lon2: Double
     ): Float {
-        val r = 6_371_000.0 // Earth radius in meters
-        val dLat = Math.toRadians(lat2 - lat1)
-        val dLon = Math.toRadians(lon2 - lon1)
-        val a = sin(dLat / 2).pow(2) +
-                cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
-                sin(dLon / 2).pow(2)
-        val c = 2 * atan2(sqrt(a), sqrt(1 - a))
-        return (r * c).toFloat()
+        val results = FloatArray(1)
+        android.location.Location.distanceBetween(lat1, lon1, lat2, lon2, results)
+        return results[0]
     }
 
     /**
@@ -63,7 +58,7 @@ object LocationUtils {
      * Format distance for display: "4m away", "12m away"
      */
     fun formatDistance(meters: Float): String {
-        return if (meters < 5f) {
+        return if (meters <= UNLOCK_RADIUS) {
             "here"
         } else {
             "${meters.roundToInt()}m"

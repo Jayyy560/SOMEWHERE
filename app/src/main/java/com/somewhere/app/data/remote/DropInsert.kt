@@ -5,11 +5,15 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class DropInsert(
+    val id: String? = null,
     val text: String,
     @SerialName("image_url") val imageUrl: String,
     @SerialName("audio_url") val audioUrl: String? = null,
     val latitude: Double,
     val longitude: Double,
     @SerialName("author_name") val authorName: String? = null,
-    @SerialName("author_avatar_url") val authorAvatarUrl: String? = null
+    @SerialName("author_avatar_url") val authorAvatarUrl: String? = null,
+    @SerialName("expires_at") val expiresAt: String? = null,
+    @SerialName("is_anonymous") val isAnonymous: Boolean = false,
+    val category: String? = null
 )

@@ -59,9 +59,29 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodyLarge
             )
 
+            val openLegalUrl = {
+                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://somewhere-privacy-policy.vercel.app/"))
+                context.startActivity(intent)
+            }
+
             SomewhereButton(
                 text = "Manage permissions",
                 onClick = { SettingsUtils.openAppSettings(context) }
+            )
+
+            SomewhereButton(
+                text = "Privacy Policy",
+                onClick = { openLegalUrl() }
+            )
+
+            SomewhereButton(
+                text = "Terms of Service",
+                onClick = { openLegalUrl() }
+            )
+
+            SomewhereButton(
+                text = "Community Guidelines",
+                onClick = { openLegalUrl() }
             )
 
             SomewhereButton(

@@ -7,21 +7,18 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.somewhere.app.ui.screen.DiscoveryScreen
-import com.somewhere.app.ui.screen.DropScreen
 import com.somewhere.app.ui.screen.HomeScreen
 import com.somewhere.app.ui.screen.SettingsScreen
-import com.somewhere.app.ui.screen.ProfileScreen
 import com.somewhere.app.ui.screen.FindSpotScreen
+import com.somewhere.app.ui.screen.MainPagerScreen
 
 /**
  * Navigation routes for the app.
  */
 object NavDestinations {
-    const val HOME = "home"
-    const val CREATE_DROP = "create_drop"
+    const val MAIN_PAGER = "main_pager"
     const val DISCOVERY = "discovery"
     const val SETTINGS = "settings"
-    const val PROFILE = "profile"
     const val FIND_SPOT = "find_spot/{imageUrl}"
     
     fun createFindSpotRoute(imageUrl: String): String {
@@ -38,7 +35,7 @@ private const val TRANSITION_DURATION = 350
 fun SomewhereNavGraph(navController: NavHostController) {
     NavHost(
         navController = navController,
-        startDestination = NavDestinations.HOME,
+        startDestination = NavDestinations.MAIN_PAGER,
         enterTransition = {
             slideInHorizontally(
                 initialOffsetX = { fullWidth -> fullWidth },
@@ -64,19 +61,12 @@ fun SomewhereNavGraph(navController: NavHostController) {
             ) + fadeOut(animationSpec = tween(TRANSITION_DURATION))
         }
     ) {
-        composable(NavDestinations.HOME) {
-            HomeScreen(
+        composable(NavDestinations.MAIN_PAGER) {
+            MainPagerScreen(
                 onExplore = { navController.navigate(NavDestinations.DISCOVERY) },
-                onDrop = { navController.navigate(NavDestinations.CREATE_DROP) },
                 onSettings = { navController.navigate(NavDestinations.SETTINGS) },
-                onProfile = { navController.navigate(NavDestinations.PROFILE) }
-            )
-        }
-
-        composable(NavDestinations.CREATE_DROP) {
-            DropScreen(
-                onComplete = {
-                    navController.popBackStack(NavDestinations.HOME, inclusive = false)
+                onFindSpot = { imageUrl ->
+                    navController.navigate(NavDestinations.createFindSpotRoute(imageUrl))
                 }
             )
         }
@@ -91,12 +81,6 @@ fun SomewhereNavGraph(navController: NavHostController) {
 
         composable(NavDestinations.SETTINGS) {
             SettingsScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
-
-        composable(NavDestinations.PROFILE) {
-            ProfileScreen(
                 onBack = { navController.popBackStack() }
             )
         }

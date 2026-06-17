@@ -13,8 +13,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Hearing
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,10 +39,13 @@ import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import com.somewhere.app.ui.component.PermissionGate
 import com.somewhere.app.ui.component.DropDetailSheet
 import com.somewhere.app.ui.component.DropOverlayCard
 import com.somewhere.app.ui.component.PingPulse
+import com.somewhere.app.ui.component.TutorialOverlay
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.util.LocationUtils
 import com.somewhere.app.util.rememberReduceMotionEnabled
@@ -108,6 +114,9 @@ fun DiscoveryScreen(
         }
     }
 
+    val prefs = context.getSharedPreferences("somewhere_prefs", android.content.Context.MODE_PRIVATE)
+    var showTutorial by remember { mutableStateOf(!prefs.getBoolean("has_seen_tutorial", false)) }
+
     PermissionGate(
         title = "Camera + Location",
         description = "We use your camera to reveal nearby drops, and location to place them accurately.",
@@ -135,37 +144,59 @@ fun DiscoveryScreen(
                 .background(SomewhereColors.Background)
                 .alpha(contentAlpha)
         ) {
-            // Fullscreen camera preview
-            AndroidView(
-                factory = { ctx ->
-                    val previewView = PreviewView(ctx).apply {
-                        scaleType = PreviewView.ScaleType.FILL_CENTER
-                    }
+            var showListView by remember { mutableStateOf(false) }
 
-                    val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                    cameraProviderFuture.addListener({
-                        val cameraProvider = cameraProviderFuture.get()
-                        val preview = Preview.Builder().build().also {
-                            it.surfaceProvider = previewView.surfaceProvider
+            // Fullscreen camera preview
+            if (!showListView) {
+                AndroidView(
+                    factory = { ctx ->
+                        val previewView = PreviewView(ctx).apply {
+                            scaleType = PreviewView.ScaleType.FILL_CENTER
                         }
 
-                        try {
-                            cameraProvider.unbindAll()
-                            cameraProvider.bindToLifecycle(
-                                lifecycleOwner,
-                                CameraSelector.DEFAULT_BACK_CAMERA,
-                                preview
+                        val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                        cameraProviderFuture.addListener({
+                            val cameraProvider = cameraProviderFuture.get()
+                            val preview = Preview.Builder().build().also {
+                                it.surfaceProvider = previewView.surfaceProvider
+                            }
+
+                            try {
+                                cameraProvider.unbindAll()
+                                cameraProvider.bindToLifecycle(
+                                    lifecycleOwner,
+                                    CameraSelector.DEFAULT_BACK_CAMERA,
+                                    preview
+                                )
+                            } catch (_: Exception) {}
+                        }, ContextCompat.getMainExecutor(ctx))
+
+                        previewView
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                // List View Fallback
+                Box(modifier = Modifier.fillMaxSize().background(SomewhereColors.Background)) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                        contentPadding = PaddingValues(top = 100.dp, bottom = 120.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(uiState.nearbyDrops) { item ->
+                            DropOverlayCard(
+                                item = item,
+                                onTap = { if (item.isUnlocked) viewModel.selectDrop(item) },
+                                modifier = Modifier.fillMaxWidth()
                             )
-                        } catch (_: Exception) {}
-                    }, ContextCompat.getMainExecutor(ctx))
+                        }
+                    }
+                }
+            }
 
-                    previewView
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-
-            // Overlay cards positioned by compass offset
-            val drops = uiState.nearbyDrops
+            // Overlay cards positioned by compass offset (only in AR mode)
+            if (!showListView) {
+                val drops = uiState.nearbyDrops
             val zoneIndex = mutableMapOf<String, Int>()
 
             drops.forEachIndexed { index, item ->
@@ -202,13 +233,25 @@ fun DiscoveryScreen(
                 }
                 val verticalOffsetPx = with(density) { verticalOffsetDp.toPx() }
 
+                val animatedHorizontalOffset by animateFloatAsState(
+                    targetValue = horizontalOffsetPx,
+                    animationSpec = spring(stiffness = 15f, dampingRatio = 0.9f),
+                    label = "horizontalOffset"
+                )
+                
+                val animatedVerticalOffset by animateFloatAsState(
+                    targetValue = verticalOffsetPx,
+                    animationSpec = spring(stiffness = 15f, dampingRatio = 0.9f),
+                    label = "verticalOffset"
+                )
+
                 Box(
                     modifier = Modifier
                         .align(Alignment.Center)
                         .offset {
                             IntOffset(
-                                x = horizontalOffsetPx.toInt(),
-                                y = verticalOffsetPx.toInt()
+                                x = animatedHorizontalOffset.toInt(),
+                                y = animatedVerticalOffset.toInt()
                             )
                         }
                 ) {
@@ -229,23 +272,102 @@ fun DiscoveryScreen(
                     )
                 }
             }
+            }
 
             // Empty state — animated radar pulse
-            if (uiState.hasLocation && uiState.nearbyDrops.isEmpty()) {
+            if (uiState.hasLocation && uiState.nearbyDrops.isEmpty() && !showListView) {
                 RadarEmptyState(
                     modifier = Modifier.align(Alignment.Center)
                 )
             }
 
-            // Compass heading HUD — translucent pill with direction label
-            CompassHud(
-                heading = uiState.heading,
-                accuracyMeters = uiState.locationAccuracyMeters,
+            // Compass heading HUD and Toggle
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(top = 16.dp, start = 16.dp, end = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CompassHud(
+                    heading = uiState.heading,
+                    accuracyMeters = uiState.locationAccuracyMeters
+                )
+                
+                IconButton(
+                    onClick = { showListView = !showListView },
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(SomewhereColors.GlassBackground)
+                        .padding(4.dp)
+                ) {
+                    Icon(
+                        imageVector = if (showListView) Icons.Default.Map else Icons.Default.List,
+                        contentDescription = "Toggle View",
+                        tint = SomewhereColors.GlowAccent
+                    )
+                }
+            }
+
+            // Category Filter Dropdown
+            var categoryExpanded by remember { mutableStateOf(false) }
+            val categories = listOf("Story", "Memory", "Food", "Music", "Photography", "History", "Hidden Spot", "Event", "Recommendation")
+            
+            Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .statusBarsPadding()
                     .padding(top = 16.dp)
-            )
+            ) {
+                Surface(
+                    color = SomewhereColors.GlassBackground,
+                    shape = CircleShape,
+                    onClick = { categoryExpanded = true }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = uiState.selectedCategory ?: "All Categories",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = SomewhereColors.TextPrimary
+                        )
+                        Icon(
+                            imageVector = Icons.Default.ArrowDropDown,
+                            contentDescription = "Select Category",
+                            modifier = Modifier.size(16.dp),
+                            tint = SomewhereColors.TextPrimary
+                        )
+                    }
+                }
+                
+                DropdownMenu(
+                    expanded = categoryExpanded,
+                    onDismissRequest = { categoryExpanded = false },
+                    modifier = Modifier.background(SomewhereColors.Card)
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("All Categories", color = SomewhereColors.TextPrimary) },
+                        onClick = { 
+                            viewModel.setCategoryFilter(null)
+                            categoryExpanded = false 
+                        }
+                    )
+                    categories.forEach { category ->
+                        DropdownMenuItem(
+                            text = { Text(category, color = SomewhereColors.TextPrimary) },
+                            onClick = { 
+                                viewModel.setCategoryFilter(category)
+                                categoryExpanded = false 
+                            }
+                        )
+                    }
+                }
+            }
 
             // Drop count badge
             if (uiState.hasLocation && uiState.nearbyDrops.isNotEmpty()) {
@@ -334,6 +456,7 @@ fun DiscoveryScreen(
                     onDismiss = { viewModel.selectDrop(null) },
                     onDelete = { viewModel.deleteDrop(selected) },
                     onReport = { viewModel.reportDrop(selected) },
+                    onBlock = { selected.drop.authorName?.let { viewModel.blockUser(it) } },
                     onFindSpot = onFindSpot
                 )
             }
@@ -363,6 +486,14 @@ fun DiscoveryScreen(
                         }
                     }
                 )
+            }
+            
+            // Tutorial Overlay
+            if (showTutorial) {
+                TutorialOverlay(onComplete = {
+                    prefs.edit().putBoolean("has_seen_tutorial", true).apply()
+                    showTutorial = false
+                })
             }
         }
     }

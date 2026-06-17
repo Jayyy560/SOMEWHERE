@@ -36,7 +36,21 @@ object SupabaseManager {
         client.auth.signUpWith(Email) {
             this.email = email
             this.password = password
-            this.data = buildJsonObject { put("name", name) }
+            this.data = buildJsonObject { 
+                put("name", name) 
+                put("has_strong_password", true)
+            }
+        }
+    }
+
+    suspend fun resetPasswordForEmail(email: String, redirectUrl: String = "somewhere://reset") {
+        client.auth.resetPasswordForEmail(email, redirectUrl)
+    }
+
+    suspend fun updatePassword(password: String) {
+        client.auth.updateUser {
+            this.password = password
+            this.data = buildJsonObject { put("has_strong_password", true) }
         }
     }
 }

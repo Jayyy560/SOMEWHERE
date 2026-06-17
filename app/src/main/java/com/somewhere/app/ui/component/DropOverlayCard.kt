@@ -23,12 +23,14 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.util.LocationUtils
+import com.somewhere.app.util.getCategoryIcon
 import com.somewhere.app.util.rememberReduceMotionEnabled
 import com.somewhere.app.viewmodel.DiscoveredDrop
 
@@ -65,6 +67,23 @@ fun DropOverlayCard(
         label = "cardAlphaIn"
     )
     LaunchedEffect(Unit) { visible = true }
+
+    // Bounce on unlock
+    val view = androidx.compose.ui.platform.LocalView.current
+    var unlockBounce by remember { mutableStateOf(false) }
+    val unlockScaleAnim by animateFloatAsState(
+        targetValue = if (unlockBounce) 1.2f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioHighBouncy),
+        finishedListener = { unlockBounce = false },
+        label = "unlockBounce"
+    )
+
+    LaunchedEffect(item.isUnlocked) {
+        if (item.isUnlocked) {
+            view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            unlockBounce = true
+        }
+    }
 
     // Primary vs secondary sizing
     val cardScale = if (item.isPrimary) 1f else 0.85f
@@ -104,31 +123,43 @@ fun DropOverlayCard(
 
     Box(
         modifier = modifier
-            .scale(cardScale * scaleIn)
+            .scale(cardScale * scaleIn * unlockScaleAnim)
             .alpha(alphaIn * baseAlpha * shimmerAlpha),
         contentAlignment = Alignment.Center
     ) {
-        // Radial glow behind unlocked cards
-        if (item.isUnlocked) {
-            Box(
-                modifier = Modifier
-                    .size(120.dp)
-                    .alpha(glowAlpha)
-                    .background(
-                        brush = Brush.radialGradient(
-                            colors = listOf(
-                                SomewhereColors.GlowAccentDim,
-                                Color.Transparent
-                            )
-                        ),
-                        shape = CircleShape
-                    )
-            )
-        }
+
+        // Wavy animated shape
+        val infiniteTransition = rememberInfiniteTransition(label = "wave")
+        val waveProgress by infiniteTransition.animateFloat(
+            initialValue = 0f, 
+            targetValue = (2 * kotlin.math.PI).toFloat(),
+            animationSpec = infiniteRepeatable(
+                animation = tween(4000, easing = LinearEasing), 
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "wave"
+        )
+        val bubblyShape = WavyPillShape(waveProgress, 1.2f)
+
+        // Gentle breathing animation for the entire card to make left/right sides look alive
+        val scaleX by infiniteTransition.animateFloat(
+            initialValue = 0.98f, targetValue = 1.02f,
+            animationSpec = infiniteRepeatable(tween(2500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "breatheX"
+        )
+        val scaleY by infiniteTransition.animateFloat(
+            initialValue = 1.02f, targetValue = 0.98f,
+            animationSpec = infiniteRepeatable(tween(2500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+            label = "breatheY"
+        )
 
         // Main card body
         Column(
             modifier = Modifier
+                .graphicsLayer {
+                    this.scaleX = scaleX
+                    this.scaleY = scaleY
+                }
                 .then(
                     if (item.isUnlocked) {
                         Modifier.clickable(onClick = onTap)
@@ -138,39 +169,37 @@ fun DropOverlayCard(
                     if (!item.isUnlocked) Modifier.blur(3.dp) else Modifier
                 )
                 .shadow(
-                    elevation = if (item.isUnlocked) 8.dp else 2.dp,
-                    shape = RoundedCornerShape(16.dp),
-                    ambientColor = if (item.isUnlocked) {
-                        SomewhereColors.GlowAccent.copy(alpha = 0.3f)
-                    } else Color.Transparent,
-                    spotColor = if (item.isUnlocked) {
-                        SomewhereColors.GlowAccent.copy(alpha = 0.2f)
-                    } else Color.Transparent
+                    elevation = if (item.isUnlocked) 16.dp else 4.dp,
+                    shape = bubblyShape,
+                    ambientColor = Color.Black.copy(alpha = 0.2f),
+                    spotColor = Color.Black.copy(alpha = 0.4f)
                 )
-                .clip(RoundedCornerShape(16.dp))
-                .background(SomewhereColors.GlassBackground)
+                .clip(bubblyShape)
+                // Base tint for contrast
+                .background(Color.Black.copy(alpha = 0.3f))
+                // Flat whitish frost (removes stain effect from gradients)
+                .background(Color.White.copy(alpha = 0.15f))
+                // Thick 3D inner bezel
                 .border(
-                    width = 1.dp,
-                    brush = Brush.verticalGradient(
-                        colors = if (item.isUnlocked) listOf(
-                            SomewhereColors.GlassBorder,
-                            SomewhereColors.GlowAccent.copy(alpha = 0.15f)
-                        ) else listOf(
-                            SomewhereColors.GlassBorder,
-                            Color.Transparent
+                    width = 1.5.dp,
+                    brush = Brush.linearGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.9f),
+                            Color.White.copy(alpha = 0.2f),
+                            Color.White.copy(alpha = 0.6f)
                         )
                     ),
-                    shape = RoundedCornerShape(16.dp)
+                    shape = bubblyShape
                 )
                 .padding(horizontal = 16.dp, vertical = 14.dp)
-                .widthIn(min = 140.dp, max = 220.dp),
+                .widthIn(min = 80.dp, max = 220.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             if (item.isUnlocked) {
                 // ── Unlocked state ──
 
-                // Distance pill with pin icon
+                // Distance pill with category icon
                 Row(
                     modifier = Modifier
                         .clip(RoundedCornerShape(12.dp))
@@ -179,9 +208,10 @@ fun DropOverlayCard(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    val icon = getCategoryIcon(item.drop.category, item.drop.isAnonymous)
                     Icon(
-                        imageVector = Icons.Default.LocationOn,
-                        contentDescription = null,
+                        imageVector = icon,
+                        contentDescription = item.drop.category,
                         modifier = Modifier.size(12.dp),
                         tint = SomewhereColors.GlowAccent
                     )
@@ -193,6 +223,20 @@ fun DropOverlayCard(
                         ),
                         color = SomewhereColors.DistancePillText
                     )
+                }
+
+                if (item.drop.expiresAt != null) {
+                    val remainingMs = item.drop.expiresAt - System.currentTimeMillis()
+                    if (remainingMs > 0) {
+                        val hours = remainingMs / (1000 * 60 * 60)
+                        val mins = (remainingMs / (1000 * 60)) % 60
+                        val expText = if (hours > 0) "Expires in ${hours}h" else "Expires in ${mins}m"
+                        Text(
+                            text = expText,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = SomewhereColors.GlowAccent
+                        )
+                    }
                 }
 
                 // Text preview

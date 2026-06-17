@@ -17,7 +17,11 @@ data class Drop(
     val longitude: Double,
     val timestamp: Long,
     val authorName: String? = null,
-    val authorAvatarUrl: String? = null
+    val authorAvatarUrl: String? = null,
+    val authorId: String? = null,
+    val expiresAt: Long? = null,
+    val isAnonymous: Boolean = false,
+    val category: String? = null
 ) {
     val imageUrl: String
         get() = if (imagePath.startsWith("/")) {

@@ -49,6 +49,8 @@ import kotlinx.serialization.json.jsonPrimitive
  * "SOMEWHERE" title + two action buttons.
  * Lots of negative space, calm atmosphere.
  */
+import androidx.compose.runtime.saveable.rememberSaveable
+
 @Composable
 fun HomeScreen(
     onExplore: () -> Unit,
@@ -58,7 +60,7 @@ fun HomeScreen(
     userViewModel: UserViewModel = hiltViewModel()
 ) {
     // Subtle entrance fade
-    var visible by remember { mutableStateOf(false) }
+    var visible by rememberSaveable { mutableStateOf(false) }
     val reduceMotion = rememberReduceMotionEnabled()
     val titleAlpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
@@ -105,15 +107,8 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.End
         ) {
-            IconButton(onClick = onProfile) {
-                Icon(
-                    imageVector = Icons.Default.Person,
-                    contentDescription = "Profile",
-                    tint = SomewhereColors.TextPrimary
-                )
-            }
             IconButton(onClick = onSettings) {
                 Icon(
                     imageVector = Icons.Default.Settings,
@@ -123,21 +118,29 @@ fun HomeScreen(
             }
         }
 
-        // Title — positioned slightly above center
-        Text(
-            text = "SOMEWHERE",
-            style = MaterialTheme.typography.displayLarge,
+        // Liquid Refraction Logo — positioned slightly above center
+        com.somewhere.app.ui.component.LiquidLogo(
             modifier = Modifier
                 .align(Alignment.Center)
                 .offset(y = (-80).dp)
                 .alpha(titleAlpha)
         )
 
+        // Floating Liquid Glass Drops
+        com.somewhere.app.ui.component.FloatingDropsAnimation(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(300.dp)
+                .align(Alignment.Center)
+                .offset(y = 60.dp) // Offset below the title
+                .alpha(titleAlpha * 0.8f) // Fade in with the title but slightly subtler
+        )
+
         // Action buttons — lower portion
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 120.dp)
+                .padding(bottom = 170.dp)
                 .alpha(buttonsAlpha),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -147,13 +150,6 @@ fun HomeScreen(
                 onClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     onExplore()
-                }
-            )
-            PressableButton(
-                text = "Leave something here",
-                onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onDrop()
                 }
             )
         }
