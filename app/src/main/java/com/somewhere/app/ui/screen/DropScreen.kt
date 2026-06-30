@@ -358,7 +358,11 @@ fun DropScreen(
                     ) {
                         BasicTextField(
                             value = uiState.text,
-                            onValueChange = viewModel::onTextChanged,
+                            onValueChange = { 
+                                if (it.length <= 120) {
+                                    viewModel.onTextChanged(it)
+                                }
+                            },
                             modifier = Modifier
                                 .weight(1f)
                                 .clip(RoundedCornerShape(20.dp)) // Rounder corners for modern look
@@ -606,7 +610,7 @@ fun DropScreen(
                     }
 
                     // Categories (made more compact)
-                    val categories = listOf("Story", "Memory", "Food", "Music", "Photography", "History", "Hidden Spot", "Event", "Recommendation")
+                    val categories = com.somewhere.app.util.CategoryUtils.CATEGORIES
                     androidx.compose.foundation.lazy.LazyRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.fillMaxWidth()

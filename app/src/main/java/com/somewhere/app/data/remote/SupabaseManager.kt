@@ -53,4 +53,34 @@ object SupabaseManager {
             this.data = buildJsonObject { put("has_strong_password", true) }
         }
     }
+
+    suspend fun importSession(accessToken: String, refreshToken: String) {
+        client.auth.importAuthToken(accessToken, refreshToken)
+    }
+
+    fun saveCurrentSessionToStore() {
+        val session = client.auth.currentSessionOrNull() ?: return
+        val user = session.user ?: return
+        
+        val name = user.userMetadata?.get("name")?.let { 
+            if (it is kotlinx.serialization.json.JsonPrimitive) it.content else "User" 
+        } ?: "User"
+        
+        val avatarUrl = user.userMetadata?.get("avatar_url")?.let {
+            if (it is kotlinx.serialization.json.JsonPrimitive) it.content else null
+        }
+        
+        val email = user.email ?: return
+        
+        com.somewhere.app.data.local.AccountStore.saveAccount(
+            com.somewhere.app.data.local.SavedAccount(
+                userId = user.id,
+                email = email,
+                name = name,
+                avatarUrl = avatarUrl,
+                accessToken = session.accessToken,
+                refreshToken = session.refreshToken
+            )
+        )
+    }
 }

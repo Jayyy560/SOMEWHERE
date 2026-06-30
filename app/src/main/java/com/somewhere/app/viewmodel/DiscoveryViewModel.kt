@@ -110,12 +110,12 @@ class DiscoveryViewModel @Inject constructor(
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
             val location = result.lastLocation ?: return
-            _uiState.value = _uiState.value.copy(
+            _uiState.update { it.copy(
                 userLat = location.latitude,
                 userLon = location.longitude,
                 hasLocation = true,
                 locationAccuracyMeters = location.accuracy
-            )
+            ) }
             // Fetch nearby drops whenever location updates
             fetchNearbyDrops(location.latitude, location.longitude)
         }
@@ -138,12 +138,12 @@ class DiscoveryViewModel @Inject constructor(
             fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, com.google.android.gms.tasks.CancellationTokenSource().token)
                 .addOnSuccessListener { location ->
                     if (location != null) {
-                        _uiState.value = _uiState.value.copy(
+                        _uiState.update { it.copy(
                             userLat = location.latitude,
                             userLon = location.longitude,
                             hasLocation = true,
                             locationAccuracyMeters = location.accuracy
-                        )
+                        ) }
                         fetchNearbyDrops(location.latitude, location.longitude)
                     }
                 }
@@ -181,7 +181,7 @@ class DiscoveryViewModel @Inject constructor(
         _uiState.update { it.copy(selectedDrop = drop) }
         
         // Record unlock in backend
-        if (drop != null) {
+        if (drop != null && !drop.isUnlocked) {
             viewModelScope.launch {
                 repository.unlockDrop(drop.drop.id)
             }
@@ -189,7 +189,7 @@ class DiscoveryViewModel @Inject constructor(
     }
 
     fun setCategoryFilter(category: String?) {
-        _uiState.value = _uiState.value.copy(selectedCategory = category)
+        _uiState.update { it.copy(selectedCategory = category) }
         val state = _uiState.value
         if (state.hasLocation) {
             fetchNearbyDrops(state.userLat, state.userLon)
@@ -197,16 +197,16 @@ class DiscoveryViewModel @Inject constructor(
     }
 
     fun clearMessage() {
-        _uiState.value = _uiState.value.copy(message = null)
+        _uiState.update { it.copy(message = null) }
     }
 
     fun deleteDrop(item: DiscoveredDrop) {
         viewModelScope.launch {
             repository.deleteDrop(item.drop)
-            _uiState.value = _uiState.value.copy(
+            _uiState.update { it.copy(
                 selectedDrop = null,
                 message = "Drop deleted"
-            )
+            ) }
             fetchNearbyDrops(_uiState.value.userLat, _uiState.value.userLon)
         }
     }
@@ -214,10 +214,10 @@ class DiscoveryViewModel @Inject constructor(
     fun reportDrop(item: DiscoveredDrop) {
         viewModelScope.launch {
             repository.reportDrop(item.drop.id)
-            _uiState.value = _uiState.value.copy(
+            _uiState.update { it.copy(
                 selectedDrop = null,
                 message = "Drop reported. It will no longer be visible to you."
-            )
+            ) }
             fetchNearbyDrops(_uiState.value.userLat, _uiState.value.userLon)
         }
     }
@@ -225,10 +225,10 @@ class DiscoveryViewModel @Inject constructor(
     fun blockUser(authorName: String) {
         viewModelScope.launch {
             repository.blockUser(authorName)
-            _uiState.value = _uiState.value.copy(
+            _uiState.update { it.copy(
                 selectedDrop = null,
-                message = "User blocked. Their drops will no longer be visible."
-            )
+                message = "User blocked. Their drops will be hidden."
+            ) }
             fetchNearbyDrops(_uiState.value.userLat, _uiState.value.userLon)
         }
     }

@@ -27,6 +27,7 @@ import java.util.*
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun CameraBackground(
+    isActive: Boolean,
     onImageCaptureCreated: (ImageCapture) -> Unit,
     onCameraControlCreated: (CameraControl) -> Unit
 ) {
@@ -48,6 +49,7 @@ fun CameraBackground(
                 .background(Color.Black)
         ) {
             var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
+            val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
 
             AndroidView(
                 factory = { ctx ->
@@ -55,10 +57,28 @@ fun CameraBackground(
                         scaleType = PreviewView.ScaleType.FILL_CENTER
                         implementationMode = PreviewView.ImplementationMode.COMPATIBLE
                     }
-
-                    val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                    previewView.setOnTouchListener { view, event ->
+                        if (event.action == MotionEvent.ACTION_DOWN) {
+                            val factory = SurfaceOrientedMeteringPointFactory(
+                                view.width.toFloat(), view.height.toFloat()
+                            )
+                            val point = factory.createPoint(event.x, event.y)
+                            val action = FocusMeteringAction.Builder(point).build()
+                            cameraControl?.startFocusAndMetering(action)
+                        }
+                        true
+                    }
+                    previewView
+                },
+                update = { previewView ->
                     cameraProviderFuture.addListener({
                         val cameraProvider = cameraProviderFuture.get()
+                        
+                        if (!isActive) {
+                            cameraProvider.unbindAll()
+                            return@addListener
+                        }
+
                         val preview = Preview.Builder().build().also {
                             it.surfaceProvider = previewView.surfaceProvider
                         }
@@ -82,25 +102,8 @@ fun CameraBackground(
                         } catch (e: Exception) {
                             Log.e("CameraBackground", "Use case binding failed", e)
                         }
-                    }, ContextCompat.getMainExecutor(ctx))
-
-                    previewView.setOnTouchListener { view, event ->
-                        if (event.action == MotionEvent.ACTION_DOWN) {
-                            val factory = SurfaceOrientedMeteringPointFactory(
-                                view.width.toFloat(), view.height.toFloat()
-                            )
-                            val point = factory.createPoint(event.x, event.y)
-                            val action = FocusMeteringAction.Builder(point).build()
-                            cameraControl?.startFocusAndMetering(action)
-                            
-                            // Optional: play a subtle haptic feedback or visual indicator here
-                        }
-                        true
-                    }
-
-                    previewView
-                },
-                modifier = Modifier.fillMaxSize()
+                    }, ContextCompat.getMainExecutor(context))
+                }
             )
         }
     }

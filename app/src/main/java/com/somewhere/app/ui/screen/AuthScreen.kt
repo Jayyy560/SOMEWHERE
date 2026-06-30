@@ -20,11 +20,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import com.somewhere.app.BuildConfig
 import com.somewhere.app.ui.component.SomewhereButton
 import com.somewhere.app.ui.theme.SomewhereColors
@@ -38,6 +47,7 @@ fun AuthScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var visible by remember { mutableStateOf(false) }
+    var passwordVisible by remember { mutableStateOf(false) }
     val reduceMotion = rememberReduceMotionEnabled()
     val contentAlpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
@@ -104,7 +114,18 @@ fun AuthScreen(
             onValueChange = viewModel::onPasswordChanged,
             label = { Text("Password") },
             singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
+            visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            trailingIcon = {
+                val image = if (passwordVisible)
+                    Icons.Default.Visibility
+                else
+                    Icons.Default.VisibilityOff
+                val description = if (passwordVisible) "Hide password" else "Show password"
+
+                IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                    Icon(imageVector = image, contentDescription = description)
+                }
+            },
             modifier = Modifier.fillMaxWidth()
         )
 
@@ -112,8 +133,25 @@ fun AuthScreen(
             Spacer(Modifier.height(12.dp))
             Text(
                 text = uiState.errorMessage ?: "",
+                color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
-                color = SomewhereColors.Accent
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 32.dp)
+            )
+        }
+        
+        if (!uiState.successMessage.isNullOrBlank()) {
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = uiState.successMessage ?: "",
+                color = Color(0xFF4CAF50), // Green for success
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 32.dp)
             )
         }
 
@@ -173,7 +211,7 @@ fun AuthScreen(
                 context.startActivity(intent)
             }
 
-            ClickableText(
+            androidx.compose.foundation.text.ClickableText(
                 text = annotatedString,
                 onClick = { offset ->
                     annotatedString.getStringAnnotations("TOS", offset, offset).firstOrNull()?.let { openLegalUrl() }

@@ -13,7 +13,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.somewhere.app.BuildConfig
 import com.somewhere.app.ui.component.SomewhereButton
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.util.SettingsUtils
@@ -36,6 +41,9 @@ fun SettingsScreen(
         }
     }
 
+    val blockedUsers by viewModel.blockedUsers.collectAsState()
+    var showBlockedUsers by remember { mutableStateOf(false) }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = SomewhereColors.Background
@@ -47,16 +55,11 @@ fun SettingsScreen(
                 .padding(padding)
                 .systemBarsPadding()
                 .padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
                 text = "Settings",
                 style = MaterialTheme.typography.headlineMedium
-            )
-
-            Text(
-                text = "Manage permissions and data on this device.",
-                style = MaterialTheme.typography.bodyLarge
             )
 
             val openLegalUrl = {
@@ -64,26 +67,20 @@ fun SettingsScreen(
                 context.startActivity(intent)
             }
 
-            SomewhereButton(
-                text = "Manage permissions",
-                onClick = { SettingsUtils.openAppSettings(context) }
-            )
+            Text("ACCOUNT", style = MaterialTheme.typography.labelMedium, color = SomewhereColors.TextSecondary)
+            SomewhereButton(text = "Manage Permissions", onClick = { SettingsUtils.openAppSettings(context) })
+            SomewhereButton(text = "Blocked Users (${blockedUsers.size})", onClick = { showBlockedUsers = true })
 
-            SomewhereButton(
-                text = "Privacy Policy",
-                onClick = { openLegalUrl() }
-            )
+            HorizontalDivider(color = SomewhereColors.Card)
 
-            SomewhereButton(
-                text = "Terms of Service",
-                onClick = { openLegalUrl() }
-            )
+            Text("LEGAL", style = MaterialTheme.typography.labelMedium, color = SomewhereColors.TextSecondary)
+            SomewhereButton(text = "Privacy Policy", onClick = { openLegalUrl() })
+            SomewhereButton(text = "Terms of Service", onClick = { openLegalUrl() })
+            SomewhereButton(text = "Community Guidelines", onClick = { openLegalUrl() })
 
-            SomewhereButton(
-                text = "Community Guidelines",
-                onClick = { openLegalUrl() }
-            )
+            HorizontalDivider(color = SomewhereColors.Card)
 
+            Text("DANGER ZONE", style = MaterialTheme.typography.labelMedium, color = SomewhereColors.TextSecondary)
             SomewhereButton(
                 text = if (uiState.isClearing) "Clearing..." else "Delete all drops",
                 enabled = !uiState.isClearing,
@@ -91,6 +88,13 @@ fun SettingsScreen(
             )
 
             Spacer(modifier = Modifier.weight(1f))
+
+            Text(
+                text = "Version ${BuildConfig.VERSION_NAME}",
+                style = MaterialTheme.typography.labelSmall,
+                color = SomewhereColors.TextMuted,
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            )
 
             SomewhereButton(
                 text = "Back",
@@ -117,6 +121,41 @@ fun SettingsScreen(
                 SomewhereButton(
                     text = "Cancel",
                     onClick = { showConfirm = false }
+                )
+            }
+        )
+    }
+
+    if (showBlockedUsers) {
+        AlertDialog(
+            onDismissRequest = { showBlockedUsers = false },
+            title = { Text("Blocked Users") },
+            text = {
+                if (blockedUsers.isEmpty()) {
+                    Text("No blocked users.")
+                } else {
+                    LazyColumn {
+                        items(blockedUsers.toList()) { user ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(user)
+                                androidx.compose.material3.TextButton(onClick = { viewModel.unblockUser(user) }) {
+                                    Text("Unblock", color = SomewhereColors.Accent)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                SomewhereButton(
+                    text = "Close",
+                    onClick = { showBlockedUsers = false }
                 )
             }
         )

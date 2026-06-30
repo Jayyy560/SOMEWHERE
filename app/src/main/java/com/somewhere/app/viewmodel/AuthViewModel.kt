@@ -25,27 +25,28 @@ class AuthViewModel @Inject constructor() : ViewModel() {
         val password: String = "",
         val mode: Mode = Mode.SIGN_IN,
         val isLoading: Boolean = false,
-        val errorMessage: String? = null
+        val errorMessage: String? = null,
+        val successMessage: String? = null
     )
 
     private val _uiState = MutableStateFlow(AuthUiState())
     val uiState: StateFlow<AuthUiState> = _uiState.asStateFlow()
 
     fun onNameChanged(value: String) {
-        _uiState.value = _uiState.value.copy(name = value, errorMessage = null)
+        _uiState.value = _uiState.value.copy(name = value, errorMessage = null, successMessage = null)
     }
 
     fun onEmailChanged(value: String) {
-        _uiState.value = _uiState.value.copy(email = value, errorMessage = null)
+        _uiState.value = _uiState.value.copy(email = value, errorMessage = null, successMessage = null)
     }
 
     fun onPasswordChanged(value: String) {
-        _uiState.value = _uiState.value.copy(password = value, errorMessage = null)
+        _uiState.value = _uiState.value.copy(password = value, errorMessage = null, successMessage = null)
     }
 
     fun toggleMode() {
         val next = if (_uiState.value.mode == Mode.SIGN_IN) Mode.SIGN_UP else Mode.SIGN_IN
-        _uiState.value = _uiState.value.copy(mode = next, errorMessage = null)
+        _uiState.value = _uiState.value.copy(mode = next, errorMessage = null, successMessage = null)
     }
 
     fun submit() {
@@ -102,6 +103,10 @@ class AuthViewModel @Inject constructor() : ViewModel() {
                     SupabaseManager.signUpWithEmail(state.name.trim(), state.email.trim(), state.password)
                 }
             }
+            
+            if (result.isSuccess) {
+                SupabaseManager.saveCurrentSessionToStore()
+            }
 
             _uiState.value = _uiState.value.copy(
                 isLoading = false,
@@ -124,7 +129,8 @@ class AuthViewModel @Inject constructor() : ViewModel() {
             }
             _uiState.value = _uiState.value.copy(
                 isLoading = false,
-                errorMessage = result.exceptionOrNull()?.message ?: "Password reset email sent!"
+                errorMessage = result.exceptionOrNull()?.message,
+                successMessage = if (result.isSuccess) "Password reset email sent!" else null
             )
         }
     }

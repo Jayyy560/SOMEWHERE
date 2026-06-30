@@ -21,6 +21,17 @@ class SomewhereApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        com.somewhere.app.data.local.AccountStore.init(this)
+        
+        CoroutineScope(Dispatchers.IO).launch {
+            // Keep the active account in sync so we don't lose the refreshed tokens
+            com.somewhere.app.data.remote.SupabaseManager.client.auth.sessionStatus.collect { status ->
+                if (status is io.github.jan.supabase.gotrue.SessionStatus.Authenticated) {
+                    com.somewhere.app.data.remote.SupabaseManager.saveCurrentSessionToStore()
+                }
+            }
+        }
+
         CoroutineScope(Dispatchers.IO).launch {
             repository.cleanupOrphanMedia()
             setupNotificationListener()

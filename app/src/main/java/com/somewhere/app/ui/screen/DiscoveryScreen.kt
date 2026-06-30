@@ -168,8 +168,11 @@ fun DiscoveryScreen(
                                     CameraSelector.DEFAULT_BACK_CAMERA,
                                     preview
                                 )
-                            } catch (_: Exception) {}
-                        }, ContextCompat.getMainExecutor(ctx))
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                android.widget.Toast.makeText(ctx, "Failed to initialize camera", android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        }, androidx.core.content.ContextCompat.getMainExecutor(ctx))
 
                         previewView
                     },
@@ -313,7 +316,7 @@ fun DiscoveryScreen(
 
             // Category Filter Dropdown
             var categoryExpanded by remember { mutableStateOf(false) }
-            val categories = listOf("Story", "Memory", "Food", "Music", "Photography", "History", "Hidden Spot", "Event", "Recommendation")
+            val categories = com.somewhere.app.util.CategoryUtils.CATEGORIES
             
             Box(
                 modifier = Modifier

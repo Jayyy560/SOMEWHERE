@@ -11,21 +11,27 @@ import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.LocalView
 import android.view.HapticFeedbackConstants
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material.icons.filled.CameraAlt
@@ -71,6 +77,7 @@ import kotlin.math.roundToInt
 import kotlin.math.abs
 import kotlin.math.sin
 import kotlinx.coroutines.launch
+import io.github.jan.supabase.gotrue.auth
 
 /**
  * Bottom sheet displaying the full content of a drop.
@@ -92,8 +99,16 @@ fun DropDetailSheet(
     var dragOffset by remember { mutableStateOf(0f) }
     var player by remember { mutableStateOf<MediaPlayer?>(null) }
     var isAudioPlaying by remember { mutableStateOf(false) }
-    var showActions by remember { mutableStateOf(false) }
+    
+    var currentUserId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        currentUserId = com.somewhere.app.data.remote.SupabaseManager.client.auth.currentUserOrNull()?.id
+    }
 
+    var isEditing by remember { mutableStateOf(false) }
+    var editDropText by remember { mutableStateOf(drop.text) }
+    var showActions by remember { mutableStateOf(false) }
+    
     val context = LocalContext.current
     val repository = remember { (context.applicationContext as SomewhereApplication).repository }
     
@@ -265,13 +280,50 @@ fun DropDetailSheet(
                     )
                 }
             }
+            
+            // Drop Expiry Indicator
+            if (drop.expiresAt != null) {
+                val timeRemainingMs = drop.expiresAt - System.currentTimeMillis()
+                if (timeRemainingMs > 0) {
+                    val hours = java.util.concurrent.TimeUnit.MILLISECONDS.toHours(timeRemainingMs)
+                    val mins = java.util.concurrent.TimeUnit.MILLISECONDS.toMinutes(timeRemainingMs) % 60
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        text = "Expires in ${if (hours > 0) "${hours}h " else ""}${mins}m",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = SomewhereColors.TextSecondary,
+                        modifier = Modifier.padding(horizontal = 24.dp)
+                    )
+                }
+            }
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(24.dp))
 
             // Message text
-            if (drop.text.isNotBlank()) {
+            if (isEditing) {
+                OutlinedTextField(
+                    value = editDropText,
+                    onValueChange = { editDropText = it },
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = SomewhereColors.TextPrimary,
+                        unfocusedTextColor = SomewhereColors.TextPrimary
+                    )
+                )
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = { isEditing = false; editDropText = drop.text }) {
+                        Text("Cancel", color = SomewhereColors.TextSecondary)
+                    }
+                    TextButton(onClick = { 
+                        isEditing = false
+                        scope.launch { repository.updateDropText(drop.id, editDropText) }
+                    }) {
+                        Text("Save", color = SomewhereColors.Accent)
+                    }
+                }
+            } else if (editDropText.isNotBlank()) {
                 Text(
-                    text = drop.text,
+                    text = editDropText,
                     style = MaterialTheme.typography.bodyLarge.copy(
                         fontWeight = FontWeight.Medium,
                         lineHeight = 24.sp
@@ -521,6 +573,26 @@ fun DropDetailSheet(
                             )
                         }
                         // Report
+                        val context = androidx.compose.ui.platform.LocalContext.current
+                        IconButton(
+                            onClick = {
+                                val sendIntent = android.content.Intent().apply {
+                                    action = android.content.Intent.ACTION_SEND
+                                    putExtra(android.content.Intent.EXTRA_TEXT, "Check out this drop: \"${drop.text}\" #SomewhereApp")
+                                    type = "text/plain"
+                                }
+                                val shareIntent = android.content.Intent.createChooser(sendIntent, null)
+                                context.startActivity(shareIntent)
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Share,
+                                contentDescription = "Share",
+                                modifier = Modifier.size(18.dp),
+                                tint = SomewhereColors.TextMuted
+                            )
+                        }
                         IconButton(
                             onClick = onReport,
                             modifier = Modifier.size(36.dp)
@@ -532,17 +604,30 @@ fun DropDetailSheet(
                                 tint = SomewhereColors.TextMuted
                             )
                         }
-                        // Delete
-                        IconButton(
-                            onClick = onDelete,
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Delete,
-                                contentDescription = "Delete",
-                                modifier = Modifier.size(18.dp),
-                                tint = SomewhereColors.Error.copy(alpha = 0.7f)
-                            )
+                        // Edit & Delete (only if owner)
+                        if (drop.authorId != null && drop.authorId == currentUserId) {
+                            IconButton(
+                                onClick = { isEditing = true },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = "Edit Text",
+                                    modifier = Modifier.size(18.dp),
+                                    tint = SomewhereColors.TextMuted
+                                )
+                            }
+                            IconButton(
+                                onClick = onDelete,
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = "Delete",
+                                    modifier = Modifier.size(18.dp),
+                                    tint = SomewhereColors.Error.copy(alpha = 0.7f)
+                                )
+                            }
                         }
                     }
                 }

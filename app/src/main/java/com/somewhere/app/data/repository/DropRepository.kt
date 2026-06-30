@@ -74,22 +74,6 @@ class DropRepository(
     ): Drop {
         require(text.isNotBlank()) { "Drop text must not be blank" }
 
-        // Client-side rate limiting: Max 15 drops per hour
-        val dropTimestampsStr = sharedPrefs.getString("drop_timestamps", "") ?: ""
-        val now = System.currentTimeMillis()
-        val oneHourAgo = now - 3600 * 1000
-        val validTimestamps = dropTimestampsStr.split(",")
-            .mapNotNull { it.toLongOrNull() }
-            .filter { it > oneHourAgo }
-
-        if (validTimestamps.size >= 15) {
-            throw Exception("Rate limit exceeded: You can only create 15 drops per hour.")
-        }
-        
-        // Update valid timestamps
-        val newTimestampsStr = (validTimestamps + now).joinToString(",")
-        sharedPrefs.edit().putString("drop_timestamps", newTimestampsStr).apply()
-
         val uploadedImageUrl = uploadImageAndGetPublicUrl(Uri.parse(imagePath))
         val normalizedAudioPath = audioPath?.let { normalizeLocalPath(it) ?: it }
         val uploadedAudioUrl = audioPath?.let { path ->
@@ -137,17 +121,21 @@ class DropRepository(
         return drop
     }
 
-    suspend fun deleteDrop(drop: Drop) {
+    suspend fun deleteDrop(drop: Drop): Boolean {
         // Delete locally
         dao.deleteById(drop.id)
         deleteLocalFileIfPresent(drop.imagePath)
         drop.audioPath?.let { deleteLocalFileIfPresent(it) }
         
         // Delete remotely
-        runCatching {
+        return try {
             SupabaseManager.client.from("drops").delete {
                 filter { eq("id", drop.id) }
             }
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("DropRepository", "Failed to delete drop", e)
+            false
         }
     }
 
@@ -204,12 +192,13 @@ class DropRepository(
         }
         
         // Delete remotely for current user
-        val authorName = currentUser?.userMetadata?.get("name")?.jsonPrimitive?.content
-        if (authorName != null) {
-            runCatching {
+        if (currentUser != null) {
+            try {
                 SupabaseManager.client.from("drops").delete {
-                    filter { eq("author_name", authorName) }
+                    filter { eq("user_id", currentUser.id) }
                 }
+            } catch (e: Exception) {
+                android.util.Log.e("DropRepository", "Failed to delete all drops", e)
             }
         }
         
@@ -271,6 +260,16 @@ class DropRepository(
         sharedPrefs.edit().putStringSet("blocked_users", blocked).apply()
     }
 
+    fun unblockUser(authorName: String) {
+        val blocked = sharedPrefs.getStringSet("blocked_users", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+        blocked.remove(authorName)
+        sharedPrefs.edit().putStringSet("blocked_users", blocked).apply()
+    }
+
+    fun getBlockedUsers(): Set<String> {
+        return sharedPrefs.getStringSet("blocked_users", emptySet()) ?: emptySet()
+    }
+
     suspend fun startRealtimeDrops() {
         val channel = SupabaseManager.client.channel("realtime-drops")
         channel.subscribe()
@@ -329,14 +328,34 @@ class DropRepository(
         val bitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
             ?: error("Failed to decode image")
 
+        // Scale down to max 1024px to dramatically reduce size and upload/download times
+        val maxDim = 1024f
+        val scale = kotlin.math.min(maxDim / bitmap.width, maxDim / bitmap.height)
+        val finalBitmap = if (scale < 1f) {
+            Bitmap.createScaledBitmap(
+                bitmap,
+                (bitmap.width * scale).toInt(),
+                (bitmap.height * scale).toInt(),
+                true
+            )
+        } else {
+            bitmap
+        }
+
         val outputStream = ByteArrayOutputStream()
-        bitmap.compress(Bitmap.CompressFormat.JPEG, 70, outputStream)
+        finalBitmap.compress(Bitmap.CompressFormat.JPEG, 70, outputStream)
+        
+        if (finalBitmap != bitmap) {
+            finalBitmap.recycle()
+        }
         bitmap.recycle()
 
         val compressedBytes = outputStream.toByteArray()
         outputStream.close()
 
-        val fileName = "drops/${UUID.randomUUID()}.jpg"
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull()
+        val userId = currentUser?.id ?: UUID.randomUUID().toString()
+        val fileName = "$userId/${UUID.randomUUID()}.jpg"
 
         SupabaseManager.client.storage
             .from("drops-images")
@@ -354,7 +373,9 @@ class DropRepository(
 
         require(audioBytes != null && audioBytes.isNotEmpty()) { "Audio bytes are empty" }
 
-        val fileName = "audio/${UUID.randomUUID()}.m4a"
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull()
+        val userId = currentUser?.id ?: UUID.randomUUID().toString()
+        val fileName = "$userId/${UUID.randomUUID()}.m4a"
 
         SupabaseManager.client.storage
             .from("drops-audio")
@@ -534,15 +555,19 @@ class DropRepository(
         }
     }
 
-    suspend fun unlikeDrop(dropId: String) {
-        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return
-        runCatching {
+    suspend fun unlikeDrop(dropId: String): Boolean {
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return false
+        return try {
             SupabaseManager.client.postgrest["drop_likes"].delete {
                 filter { 
                     eq("drop_id", dropId)
                     eq("user_id", currentUser.id)
                 }
             }
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("DropRepository", "Failed to unlike drop", e)
+            false
         }
     }
 
@@ -557,23 +582,7 @@ class DropRepository(
 
     suspend fun addComment(drop: Drop, text: String) {
         val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return
-        
-        // Client-side rate limiting: Max 8 comments per 5 minutes
-        val commentTimestampsStr = sharedPrefs.getString("comment_timestamps", "") ?: ""
-        val now = System.currentTimeMillis()
-        val fiveMinsAgo = now - 5 * 60 * 1000
-        val validTimestamps = commentTimestampsStr.split(",")
-            .mapNotNull { it.toLongOrNull() }
-            .filter { it > fiveMinsAgo }
 
-        if (validTimestamps.size >= 8) {
-            throw Exception("couldnt comment. try again in sometime.")
-        }
-        
-        // Update valid timestamps
-        val newTimestampsStr = (validTimestamps + now).joinToString(",")
-        sharedPrefs.edit().putString("comment_timestamps", newTimestampsStr).apply()
-        
         val currentName = currentUser.userMetadata?.get("name")?.jsonPrimitive?.content ?: "Anonymous"
         val currentAvatar = currentUser.userMetadata?.get("avatar_url")?.jsonPrimitive?.content
         runCatching {
@@ -608,9 +617,9 @@ class DropRepository(
         }
     }
 
-    suspend fun unlockDrop(dropId: String) {
-        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return
-        runCatching {
+    suspend fun unlockDrop(dropId: String): Boolean {
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return false
+        return try {
             SupabaseManager.client.postgrest["unlocked_drops"].insert(
                 com.somewhere.app.data.remote.UnlockedDrop(
                     id = java.util.UUID.randomUUID().toString(),
@@ -618,9 +627,12 @@ class DropRepository(
                     dropId = dropId
                 )
             )
-        }.onFailure {
-            println("!!! CRITICAL BACKEND ERROR IN UNLOCKDROP: ${it.message}")
-            it.printStackTrace()
+            true
+        } catch (e: Exception) {
+            println("!!! CRITICAL BACKEND ERROR IN UNLOCKDROP: ${e.message}")
+            e.printStackTrace()
+            android.util.Log.e("DropRepository", "Failed to unlock drop", e)
+            false
         }
     }
 
@@ -660,5 +672,27 @@ class DropRepository(
             println("!!! CRITICAL BACKEND ERROR IN GETUNLOCKEDDROPS: ${it.message}")
             it.printStackTrace()
         }.getOrDefault(emptyList())
+    }
+    suspend fun updateDropText(dropId: String, newText: String) {
+        runCatching {
+            // Update remote
+            SupabaseManager.client.postgrest["drops"]
+                .update(
+                    {
+                        set("text", newText)
+                    }
+                ) {
+                    filter { eq("id", dropId) }
+                }
+            
+            // Update local
+            val localDrop = dao.getDropById(dropId)
+            if (localDrop != null) {
+                dao.insert(localDrop.copy(text = newText))
+            }
+        }.onFailure {
+            println("!!! ERROR updating drop text: ${it.message}")
+            it.printStackTrace()
+        }
     }
 }

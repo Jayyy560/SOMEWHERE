@@ -10,6 +10,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import org.json.JSONArray
 import javax.inject.Inject
@@ -41,29 +42,29 @@ class DropViewModel @Inject constructor(
     val uiState: StateFlow<DropUiState> = _uiState.asStateFlow()
 
     fun onPhotoCaptured(uri: Uri) {
-        _uiState.value = _uiState.value.copy(capturedImageUri = uri)
+        _uiState.update { it.copy(capturedImageUri = uri) }
     }
 
     fun onTextChanged(text: String) {
         if (text.length <= 120) {
-            _uiState.value = _uiState.value.copy(text = text)
+            _uiState.update { it.copy(text = text) }
         }
     }
 
     fun setDropType(isMoment: Boolean) {
-        _uiState.value = _uiState.value.copy(isMoment = isMoment)
+        _uiState.update { it.copy(isMoment = isMoment) }
     }
 
     fun setDuration(durationMs: Long, customLabel: String? = null) {
-        _uiState.value = _uiState.value.copy(durationMs = durationMs, customDurationLabel = customLabel)
+        _uiState.update { it.copy(durationMs = durationMs, customDurationLabel = customLabel) }
     }
 
     fun setCategory(category: String) {
-        _uiState.value = _uiState.value.copy(category = category)
+        _uiState.update { it.copy(category = category) }
     }
 
     fun setAnonymous(isAnonymous: Boolean) {
-        _uiState.value = _uiState.value.copy(isAnonymous = isAnonymous)
+        _uiState.update { it.copy(isAnonymous = isAnonymous) }
     }
 
     fun generateAiDrop(context: Context) {
@@ -73,15 +74,15 @@ class DropViewModel @Inject constructor(
                 val jsonArray = JSONArray(jsonString)
                 val drops = List(jsonArray.length()) { jsonArray.getString(it) }
                 val randomDrop = drops.random()
-                _uiState.value = _uiState.value.copy(text = randomDrop)
+                _uiState.update { it.copy(text = randomDrop) }
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(error = "Failed to load AI drops")
+                _uiState.update { it.copy(error = "Failed to load AI drops") }
             }
         }
     }
 
     fun onAudioCaptured(uri: Uri) {
-        _uiState.value = _uiState.value.copy(recordedAudioUri = uri)
+        _uiState.update { it.copy(recordedAudioUri = uri) }
     }
 
     fun clearAudio() {
@@ -89,7 +90,7 @@ class DropViewModel @Inject constructor(
         viewModelScope.launch {
             repository.deleteLocalAudio(current.toString())
         }
-        _uiState.value = _uiState.value.copy(recordedAudioUri = null)
+        _uiState.update { it.copy(recordedAudioUri = null) }
     }
 
     fun saveDrop(latitude: Double, longitude: Double) {
@@ -97,7 +98,7 @@ class DropViewModel @Inject constructor(
         val imageUri = state.capturedImageUri ?: return
         if (state.text.isBlank()) return
 
-        _uiState.value = state.copy(isSaving = true, error = null)
+        _uiState.update { it.copy(isSaving = true, error = null) }
 
         viewModelScope.launch {
             try {
@@ -112,19 +113,19 @@ class DropViewModel @Inject constructor(
                     isAnonymous = state.isAnonymous,
                     category = state.category
                 )
-                _uiState.value = _uiState.value.copy(isSaving = false, isSaved = true)
+                _uiState.update { it.copy(isSaving = false, isSaved = true) }
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(
+                _uiState.update { it.copy(
                     isSaving = false,
                     error = e.message ?: "Failed to save"
-                )
+                ) }
             }
         }
     }
 
     fun reset() {
         val previous = _uiState.value
-        _uiState.value = DropUiState()
+        _uiState.update { DropUiState() }
         previous.capturedImageUri?.let { uri ->
             viewModelScope.launch {
                 if (!previous.isSaved) {

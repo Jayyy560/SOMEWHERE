@@ -19,6 +19,7 @@ import com.somewhere.app.ui.component.FloatingBottomNav
 import com.somewhere.app.ui.screen.DropScreen
 import com.somewhere.app.ui.screen.HomeScreen
 import com.somewhere.app.ui.screen.ProfileScreen
+import com.somewhere.app.ui.screen.TripScreen
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.camera.core.ImageCapture
@@ -38,9 +39,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 fun MainPagerScreen(
     onExplore: () -> Unit,
     onSettings: () -> Unit,
+    onNotifications: () -> Unit,
     onFindSpot: (String) -> Unit
 ) {
-    val pagerState = rememberPagerState(initialPage = 0) { 3 }
+    val pagerState = rememberPagerState(initialPage = 1) { 4 }
     val coroutineScope = rememberCoroutineScope()
     
     // Check if keyboard is visible reliably
@@ -52,7 +54,7 @@ fun MainPagerScreen(
     val focusRequester = remember { FocusRequester() }
     
     LaunchedEffect(pagerState.currentPage) {
-        if (pagerState.currentPage == 1) {
+        if (pagerState.currentPage == 2) {
             focusRequester.requestFocus()
         }
     }
@@ -61,6 +63,7 @@ fun MainPagerScreen(
     var triggerCapture by remember { mutableStateOf(false) }
     
     var isCreatingDrop by remember { mutableStateOf(false) }
+    var showAccountSwitcher by remember { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -68,7 +71,7 @@ fun MainPagerScreen(
             .focusRequester(focusRequester)
             .focusable()
             .onKeyEvent { event ->
-                if (pagerState.currentPage == 1 && event.type == KeyEventType.KeyUp) {
+                if (pagerState.currentPage == 2 && event.type == KeyEventType.KeyUp) {
                     if (event.key == Key.VolumeUp || event.key == Key.VolumeDown) {
                         triggerCapture = true
                         return@onKeyEvent true
@@ -78,27 +81,41 @@ fun MainPagerScreen(
             }
 
     ) {
-        // Z-Index 0: The Camera (always pinned at the bottom to eliminate swipe jitter)
+        // Z-Index 0: The Camera (only active when on or near the DropScreen to save battery and reduce lag)
         CameraBackground(
+            isActive = pagerState.currentPage == 2 || pagerState.targetPage == 2,
             onImageCaptureCreated = { imageCapture = it },
             onCameraControlCreated = { cameraControl = it }
         )
 
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
+            userScrollEnabled = pagerState.currentPage != 0
         ) { page ->
             when (page) {
                 0 -> Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                    TripScreen(
+                        onBack = {
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(1)
+                            }
+                        }
+                    )
+                }
+                1 -> Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
                     HomeScreen(
                         onExplore = onExplore,
                         onSettings = onSettings,
-                        // Pass empty functions since bottom nav handles switching now
-                        onDrop = {},
-                        onProfile = {}
+                        onNotifications = onNotifications,
+                        onTripMode = {
+                            coroutineScope.launch {
+                                pagerState.animateScrollToPage(0)
+                            }
+                        }
                     )
                 }
-                1 -> Box(modifier = Modifier.fillMaxSize().background(Color.Transparent)) {
+                2 -> Box(modifier = Modifier.fillMaxSize().background(Color.Transparent)) {
                     DropScreen(
                         imageCapture = imageCapture,
                         triggerCapture = triggerCapture,
@@ -112,18 +129,17 @@ fun MainPagerScreen(
                         onComplete = {
                             // Return to Home tab
                             coroutineScope.launch {
-                                pagerState.animateScrollToPage(0)
+                                pagerState.animateScrollToPage(1)
                             }
                         },
                         onCreationStateChanged = { isCreatingDrop = it }
                     )
                 }
-                2 -> Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                3 -> Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
                     ProfileScreen(
-                        // Tab doesn't need to pop back stack; just go to Home if they click back
                         onBack = {
                             coroutineScope.launch {
-                                pagerState.animateScrollToPage(0)
+                                pagerState.animateScrollToPage(1)
                             }
                         }
                     )
@@ -144,6 +160,20 @@ fun MainPagerScreen(
                     coroutineScope.launch {
                         pagerState.animateScrollToPage(targetPage)
                     }
+                },
+                onProfileLongClick = { showAccountSwitcher = true }
+            )
+        }
+
+        if (showAccountSwitcher) {
+            com.somewhere.app.ui.component.AccountSwitcherSheet(
+                onDismiss = { showAccountSwitcher = false },
+                onAddAccount = { 
+                    showAccountSwitcher = false
+                    // Drop to auth screen is handled by MainActivity observing session status
+                },
+                onAccountSwitched = {
+                    showAccountSwitcher = false
                 }
             )
         }

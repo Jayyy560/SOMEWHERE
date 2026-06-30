@@ -3,6 +3,8 @@ package com.somewhere.app.ui.component
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -10,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -25,14 +28,16 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.border
 import androidx.compose.ui.graphics.Brush
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun FloatingBottomNav(
     pagerState: androidx.compose.foundation.pager.PagerState,
     onTabSelected: (Int) -> Unit,
+    onProfileLongClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val tabs = listOf(
+        Icons.Default.DirectionsWalk,
         Icons.Default.Home,
         Icons.Default.Add,
         Icons.Default.Person
@@ -118,6 +123,7 @@ fun FloatingBottomNav(
                     ),
                     shape = shape
                 )
+                .blur(4.dp)
         )
 
         Row(
@@ -128,18 +134,25 @@ fun FloatingBottomNav(
                 BottomNavItem(
                     icon = icon,
                     isSelected = pagerState.currentPage == index,
-                    onClick = { onTabSelected(index) }
+                    onClick = { onTabSelected(index) },
+                    onLongClick = {
+                        if (index == 3) {
+                            onProfileLongClick()
+                        }
+                    }
                 )
             }
         }
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun BottomNavItem(
     icon: ImageVector,
     isSelected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {}
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val coroutineScope = rememberCoroutineScope()
@@ -149,25 +162,40 @@ private fun BottomNavItem(
         modifier = Modifier
             .size(56.dp)
             .clip(androidx.compose.foundation.shape.RoundedCornerShape(percent = 50))
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null
-            ) {
-                onClick()
-                coroutineScope.launch {
-                    scale.animateTo(
-                        targetValue = 0.85f,
-                        animationSpec = tween(100, easing = FastOutLinearInEasing)
-                    )
-                    scale.animateTo(
-                        targetValue = 1.0f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessMedium
+            .combinedClickable(
+                onClick = {
+                    onClick()
+                    coroutineScope.launch {
+                        scale.animateTo(
+                            targetValue = 0.85f,
+                            animationSpec = tween(100, easing = FastOutLinearInEasing)
                         )
-                    )
+                        scale.animateTo(
+                            targetValue = 1.0f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            )
+                        )
+                    }
+                },
+                onLongClick = {
+                    onLongClick()
+                    coroutineScope.launch {
+                        scale.animateTo(
+                            targetValue = 0.85f,
+                            animationSpec = tween(100, easing = FastOutLinearInEasing)
+                        )
+                        scale.animateTo(
+                            targetValue = 1.0f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            )
+                        )
+                    }
                 }
-            },
+            ),
         contentAlignment = Alignment.Center
     ) {
         // Icon

@@ -12,7 +12,10 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <application
         android:name=".SomewhereApplication"
@@ -22,11 +25,17 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@style/Theme.Somewhere"
-        tools:targetApi="35">
+        android:requestLegacyExternalStorage="true"
+        tools:targetApi="31">
+
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="${GOOGLE_MAPS_API_KEY}" />
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:supportsPictureInPicture="true"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.Somewhere">
@@ -42,6 +51,16 @@
                 <data android:scheme="somewhere" android:host="reset" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".data.location.TripForegroundService"
+            android:foregroundServiceType="location"
+            android:exported="false" />
+
+        <receiver
+            android:name=".data.location.GeofenceBroadcastReceiver"
+            android:enabled="true"
+            android:exported="true" />
 
         <!-- Sentry Error Tracking -->
         <meta-data android:name="io.sentry.dsn" android:value="https://06fb4af5a32a9028b7fd459068a1c7e2@o4511570601246720.ingest.de.sentry.io/4511570607145040" />

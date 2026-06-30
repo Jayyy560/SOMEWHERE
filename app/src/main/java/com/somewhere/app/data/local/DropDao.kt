@@ -19,6 +19,9 @@ interface DropDao {
     @Query("DELETE FROM drops WHERE id = :id")
     suspend fun deleteById(id: String)
 
+    @Query("SELECT * FROM drops WHERE id = :id LIMIT 1")
+    suspend fun getDropById(id: String): Drop?
+
     @Query("DELETE FROM drops")
     suspend fun deleteAll()
 

@@ -39,6 +39,18 @@ android {
             "SUPABASE_ANON_KEY",
             "\"${localProperties.getProperty("SUPABASE_ANON_KEY") ?: ""}\""
         )
+        buildConfigField(
+            "String",
+            "GOOGLE_MAPS_API_KEY",
+            "\"${localProperties.getProperty("GOOGLE_MAPS_API_KEY") ?: ""}\""
+        )
+        buildConfigField(
+            "String",
+            "COLAB_AI_URL",
+            "\"${localProperties.getProperty("COLAB_AI_URL") ?: ""}\""
+        )
+        
+        manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = localProperties.getProperty("GOOGLE_MAPS_API_KEY") ?: ""
     }
 
     buildTypes {
@@ -105,6 +117,7 @@ dependencies {
 
     // Location
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 
     // Room
     val roomVersion = "2.6.1"
@@ -123,10 +136,14 @@ dependencies {
 
     // Supabase (backend)
     implementation("io.github.jan-tennert.supabase:postgrest-kt:2.5.4")
-    implementation("io.github.jan-tennert.supabase:realtime-kt:2.6.1")
+    implementation("io.github.jan-tennert.supabase:realtime-kt:2.5.4")
     implementation("io.sentry:sentry-android:7.14.0")
+    implementation("io.ktor:ktor-client-android:2.3.11")
     implementation("io.github.jan-tennert.supabase:storage-kt:2.5.4")
     implementation("io.github.jan-tennert.supabase:gotrue-kt:2.5.4")
+
+    // Security
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("io.ktor:ktor-client-okhttp:2.3.12")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
@@ -138,4 +155,9 @@ dependencies {
     // TensorFlow Lite for on-device image similarity
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
+
+    // Google Maps Compose
+    implementation("com.google.maps.android:maps-compose:4.3.3")
+    implementation("com.google.android.gms:play-services-maps:18.2.0")
+    implementation("com.google.maps.android:android-maps-utils:3.8.0")
 }

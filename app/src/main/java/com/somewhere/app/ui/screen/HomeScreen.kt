@@ -27,9 +27,14 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.ContentScale
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -37,6 +42,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import android.net.Uri
 import com.somewhere.app.data.remote.SupabaseManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.activity.ComponentActivity
 import com.somewhere.app.viewmodel.UserViewModel
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.buildJsonObject
@@ -54,12 +62,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 @Composable
 fun HomeScreen(
     onExplore: () -> Unit,
-    onDrop: () -> Unit,
     onSettings: () -> Unit,
-    onProfile: () -> Unit,
-    userViewModel: UserViewModel = hiltViewModel()
+    onNotifications: () -> Unit,
+    onTripMode: () -> Unit = {}
 ) {
-    // Subtle entrance fade
+    val activity = LocalContext.current as ComponentActivity
+    val userViewModel: UserViewModel = hiltViewModel(activity)
+    
+    val focusManager = LocalFocusManager.current
     var visible by rememberSaveable { mutableStateOf(false) }
     val reduceMotion = rememberReduceMotionEnabled()
     val titleAlpha by animateFloatAsState(
@@ -85,13 +95,19 @@ fun HomeScreen(
         newAvatarUri = uri
     }
 
-    LaunchedEffect(Unit) { 
+    val sessionStatus by SupabaseManager.client.auth.sessionStatus.collectAsState(initial = io.github.jan.supabase.gotrue.SessionStatus.NotAuthenticated(false))
+    val user = (sessionStatus as? io.github.jan.supabase.gotrue.SessionStatus.Authenticated)?.session?.user
+
+    LaunchedEffect(user) { 
         visible = true 
-        val user = SupabaseManager.client.auth.currentUserOrNull()
-        val name = user?.userMetadata?.get("name")?.jsonPrimitive?.content
-        val gender = user?.userMetadata?.get("gender")?.jsonPrimitive?.content
-        if (name.isNullOrBlank() || gender.isNullOrBlank()) {
-            showNamePrompt = true
+        if (user != null) {
+            val name = user.userMetadata?.get("name")?.jsonPrimitive?.content
+            val gender = user.userMetadata?.get("gender")?.jsonPrimitive?.content
+            if (name.isNullOrBlank() || gender.isNullOrBlank()) {
+                showNamePrompt = true
+            } else {
+                showNamePrompt = false
+            }
         }
     }
     
@@ -109,6 +125,13 @@ fun HomeScreen(
                 .padding(16.dp),
             horizontalArrangement = Arrangement.End
         ) {
+            val hasNotifications by userViewModel.hasNotifications.collectAsState()
+
+            NotificationDropIcon(
+                hasNotification = hasNotifications,
+                onClick = onNotifications
+            )
+
             IconButton(onClick = onSettings) {
                 Icon(
                     imageVector = Icons.Default.Settings,
@@ -233,9 +256,14 @@ fun HomeScreen(
                                     userViewModel.saveProfile(
                                         name = newName,
                                         gender = newGender,
-                                        avatarUri = newAvatarUri,
-                                        onComplete = { showNamePrompt = false }
-                                    )
+                                        avatarUri = newAvatarUri
+                                    ) { error ->
+                                        if (error == null) {
+                                            showNamePrompt = false
+                                        } else {
+                                            android.widget.Toast.makeText(activity, error, android.widget.Toast.LENGTH_LONG).show()
+                                        }
+                                    }
                                 }
                             }
                         )
@@ -271,3 +299,128 @@ private fun PressableButton(
     }
 }
 
+@Composable
+fun NotificationDropIcon(hasNotification: Boolean, onClick: () -> Unit) {
+    val waveTransition = rememberInfiniteTransition(label = "wave")
+    val waveProgress by waveTransition.animateFloat(
+        initialValue = 0f, 
+        targetValue = if (hasNotification) (2 * kotlin.math.PI).toFloat() else 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(3000, easing = LinearEasing), 
+            repeatMode = RepeatMode.Restart
+        )
+    )
+
+    // Only apply the wave if there is a notification, otherwise static
+    val shape = com.somewhere.app.ui.component.WavyPillShape(
+        progress = if (hasNotification) waveProgress else 0f, 
+        amplitudeMultiplier = if (hasNotification) 1.5f else 0f
+    )
+
+    IconButton(onClick = onClick) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .then(
+                    if (hasNotification) {
+                        Modifier
+                            .shadow(
+                                elevation = 8.dp,
+                                shape = shape,
+                                ambientColor = Color(0xFF00E5FF).copy(alpha = 0.2f),
+                                spotColor = Color(0xFFFF00FF).copy(alpha = 0.3f)
+                            )
+                    } else {
+                        Modifier
+                    }
+                )
+                .clip(shape)
+                .background(Color.White.copy(alpha = 0.02f))
+                .then(
+                    if (hasNotification) {
+                        Modifier
+                            .background(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        Color(0xFF80D8FF).copy(alpha = 0.2f), 
+                                        Color.Transparent
+                                    ),
+                                    center = androidx.compose.ui.geometry.Offset(10f, 5f),
+                                    radius = 30f
+                                )
+                            )
+                            .background(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        Color(0xFFEA80FC).copy(alpha = 0.4f), 
+                                        Color.Transparent
+                                    ),
+                                    center = androidx.compose.ui.geometry.Offset(50f, 15f),
+                                    radius = 40f
+                                )
+                            )
+                    } else {
+                        Modifier
+                    }
+                )
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = 0.35f),
+                            Color.Transparent,
+                            Color.White.copy(alpha = 0.1f),
+                            Color.White.copy(alpha = 0.4f)
+                        )
+                    )
+                )
+                .border(
+                    width = 1.5.dp,
+                    brush = if (hasNotification) {
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color.White,
+                                Color(0xFF80D8FF).copy(alpha = 0.6f),
+                                Color.White.copy(alpha = 0.1f),
+                                Color(0xFFEA80FC).copy(alpha = 0.5f),
+                                Color.White
+                            ),
+                            start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                            end = androidx.compose.ui.geometry.Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
+                        )
+                    } else {
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color.White.copy(alpha = 0.8f),
+                                Color.White.copy(alpha = 0.1f),
+                                Color.White.copy(alpha = 0.5f)
+                            ),
+                            start = androidx.compose.ui.geometry.Offset(0f, 0f),
+                            end = androidx.compose.ui.geometry.Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)
+                        )
+                    },
+                    shape = shape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            // Intense starburst glare
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .offset(x = 2.dp, y = 1.dp),
+                contentAlignment = Alignment.BottomEnd
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .background(
+                            brush = Brush.radialGradient(
+                                colors = listOf(Color.White.copy(alpha = if (hasNotification) 1f else 0.5f), Color.Transparent),
+                                radius = 10f
+                            ),
+                            shape = CircleShape
+                        )
+                )
+            }
+        }
+    }
+}

@@ -206,8 +206,15 @@ fun GlassDropBubble(text: String) {
     )
 
     var isAgitated by remember { mutableStateOf(false) }
-    
-    // If tapped, we multiply the wave amplitude and speed up the breathing
+
+    LaunchedEffect(isAgitated) {
+        if (isAgitated) {
+            kotlinx.coroutines.delay(500)
+            isAgitated = false
+        }
+    }
+
+    // Animation specsd, we multiply the wave amplitude and speed up the breathing
     val amplitudeMultiplier by animateFloatAsState(
         targetValue = if (isAgitated) 2.5f else 1f,
         animationSpec = spring(dampingRatio = 0.3f, stiffness = 150f),

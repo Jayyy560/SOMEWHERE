@@ -5,8 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.somewhere.app.data.model.Drop
 import com.somewhere.app.data.repository.DropRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.SharingStarted
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.rpc
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -32,9 +35,11 @@ class ProfileViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            repository.syncMyDrops()
+            com.somewhere.app.data.remote.SupabaseManager.client.auth.sessionStatus.collect {
+                repository.syncMyDrops()
+                loadUnlockedDrops()
+            }
         }
-        loadUnlockedDrops()
     }
 
     private fun loadUnlockedDrops() {
@@ -60,6 +65,10 @@ class ProfileViewModel @Inject constructor(
     fun logOut(onComplete: () -> Unit) {
         viewModelScope.launch {
             repository.clearLocalCache()
+            val userId = com.somewhere.app.data.remote.SupabaseManager.client.auth.currentUserOrNull()?.id
+            if (userId != null) {
+                com.somewhere.app.data.local.AccountStore.removeAccount(userId)
+            }
             com.somewhere.app.data.remote.SupabaseManager.client.auth.signOut()
             onComplete()
         }
@@ -68,8 +77,25 @@ class ProfileViewModel @Inject constructor(
     fun deleteAccount(onComplete: () -> Unit) {
         viewModelScope.launch {
             repository.deleteAllDrops()
+            val userId = com.somewhere.app.data.remote.SupabaseManager.client.auth.currentUserOrNull()?.id
+            if (userId != null) {
+                com.somewhere.app.data.local.AccountStore.removeAccount(userId)
+            }
+            try {
+                // Call Supabase RPC to securely delete the auth.users record
+                com.somewhere.app.data.remote.SupabaseManager.client.postgrest.rpc("delete_user")
+            } catch (e: Exception) {
+                android.util.Log.e("ProfileViewModel", "Failed to delete remote account: ${e.message}")
+            }
             com.somewhere.app.data.remote.SupabaseManager.client.auth.signOut()
             onComplete()
+        }
+    }
+
+    fun blockUser(authorName: String) {
+        viewModelScope.launch {
+            repository.blockUser(authorName)
+            refreshUnlockedDrops() // Refresh drops to remove blocked user's drops if needed
         }
     }
 }

@@ -9,33 +9,39 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
+import com.somewhere.app.R
 import com.somewhere.app.data.model.Drop
 import com.somewhere.app.data.remote.SupabaseManager
 import com.somewhere.app.ui.component.DropDetailSheet
+import com.somewhere.app.ui.component.EditProfileSheet
 import com.somewhere.app.ui.component.shimmerEffect
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.viewmodel.ProfileViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.ui.platform.LocalContext
+import androidx.activity.ComponentActivity
+import com.somewhere.app.viewmodel.UserViewModel
 import io.github.jan.supabase.gotrue.auth
 import kotlinx.serialization.json.jsonPrimitive
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.ui.res.painterResource
-import com.somewhere.app.R
 
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.LockOpen
@@ -57,13 +63,27 @@ fun ProfileScreen(
         }
     }
 
-    Box(
+    Scaffold(
+        bottomBar = {
+            // Reusing the simple text bottom nav for now, or just leave empty since it's handled by main
+        },
+        containerColor = SomewhereColors.Background,
         modifier = Modifier
-            .fillMaxSize()
             .background(SomewhereColors.Background)
             .systemBarsPadding()
     ) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        var showEditProfile by remember { mutableStateOf(false) }
+        var showLogoutConfirm by remember { mutableStateOf(false) }
+        var showDeleteConfirm by remember { mutableStateOf(false) }
+
+        val sessionStatus by SupabaseManager.client.auth.sessionStatus.collectAsState(initial = io.github.jan.supabase.gotrue.SessionStatus.NotAuthenticated(false))
+        val user = (sessionStatus as? io.github.jan.supabase.gotrue.SessionStatus.Authenticated)?.session?.user
+        val name = user?.userMetadata?.get("name")?.jsonPrimitive?.content ?: "Profile"
+        val gender = user?.userMetadata?.get("gender")?.jsonPrimitive?.content ?: "Other"
+        val avatarUrl = user?.userMetadata?.get("avatar_url")?.jsonPrimitive?.content
+        val currentUserId = user?.id ?: ""
+
+        Column(modifier = Modifier.fillMaxSize().padding(it)) {
             // Top Bar
             Row(
                 modifier = Modifier
@@ -90,14 +110,14 @@ fun ProfileScreen(
                             text = { Text("Log Out") },
                             onClick = {
                                 showSettingsMenu = false
-                                viewModel.logOut { onBack() }
+                                showLogoutConfirm = true
                             }
                         )
                         DropdownMenuItem(
                             text = { Text("Delete Account Data") },
                             onClick = {
                                 showSettingsMenu = false
-                                viewModel.deleteAccount { onBack() }
+                                showDeleteConfirm = true
                             }
                         )
                     }
@@ -105,10 +125,6 @@ fun ProfileScreen(
             }
 
             // Profile Info Header
-            val user = SupabaseManager.client.auth.currentUserOrNull()
-            val name = user?.userMetadata?.get("name")?.jsonPrimitive?.content ?: "Profile"
-            val avatarUrl = user?.userMetadata?.get("avatar_url")?.jsonPrimitive?.content
-
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -153,6 +169,19 @@ fun ProfileScreen(
                     style = MaterialTheme.typography.titleLarge,
                     color = SomewhereColors.TextPrimary
                 )
+                
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                androidx.compose.material3.OutlinedButton(
+                    onClick = { showEditProfile = true },
+                    modifier = Modifier.height(36.dp),
+                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                        contentColor = SomewhereColors.TextPrimary
+                    ),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, SomewhereColors.TextMuted)
+                ) {
+                    Text("Edit Profile", style = MaterialTheme.typography.labelMedium)
+                }
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 
@@ -204,7 +233,7 @@ fun ProfileScreen(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Icon(
-                        imageVector = if (selectedTabIndex == 0) androidx.compose.material.icons.Icons.Default.LocationOn else androidx.compose.material.icons.Icons.Default.LockOpen,
+                        imageVector = if (selectedTabIndex == 0) Icons.Default.LocationOn else Icons.Default.LockOpen,
                         contentDescription = null,
                         modifier = Modifier.size(64.dp),
                         tint = SomewhereColors.TextMuted
@@ -235,6 +264,67 @@ fun ProfileScreen(
             }
         }
 
+        val activity = LocalContext.current as ComponentActivity
+        val userViewModel: UserViewModel = hiltViewModel(activity)
+
+        if (showEditProfile) {
+            EditProfileSheet(
+                initialName = name,
+                initialGender = gender,
+                initialAvatarUrl = avatarUrl,
+                viewModel = userViewModel,
+                onDismiss = { showEditProfile = false }
+            )
+        }
+
+        if (showLogoutConfirm) {
+            AlertDialog(
+                onDismissRequest = { showLogoutConfirm = false },
+                title = { Text("Log Out") },
+                text = { Text("Are you sure you want to log out?") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showLogoutConfirm = false
+                        viewModel.logOut { onBack() }
+                    }) {
+                        Text("Log Out", color = SomewhereColors.Error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showLogoutConfirm = false }) {
+                        Text("Cancel", color = SomewhereColors.TextPrimary)
+                    }
+                },
+                containerColor = SomewhereColors.Surface,
+                titleContentColor = SomewhereColors.TextPrimary,
+                textContentColor = SomewhereColors.TextSecondary
+            )
+        }
+
+        if (showDeleteConfirm) {
+            AlertDialog(
+                onDismissRequest = { showDeleteConfirm = false },
+                title = { Text("Delete Account Data") },
+                text = { Text("Are you sure you want to delete your account data? This action cannot be undone.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showDeleteConfirm = false
+                        viewModel.deleteAccount { onBack() }
+                    }) {
+                        Text("Delete", color = SomewhereColors.Error)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDeleteConfirm = false }) {
+                        Text("Cancel", color = SomewhereColors.TextPrimary)
+                    }
+                },
+                containerColor = SomewhereColors.Surface,
+                titleContentColor = SomewhereColors.TextPrimary,
+                textContentColor = SomewhereColors.TextSecondary
+            )
+        }
+
         selectedDrop?.let { drop ->
             DropDetailSheet(
                 drop = drop,
@@ -243,7 +333,10 @@ fun ProfileScreen(
                     viewModel.deleteDrop(drop)
                     selectedDrop = null
                 },
-                onBlock = {},
+                onBlock = { 
+                    selectedDrop?.authorName?.let { viewModel.blockUser(it) }
+                    selectedDrop = null 
+                },
                 onReport = {
                     selectedDrop = null
                 }

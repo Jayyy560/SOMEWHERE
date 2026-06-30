@@ -11,6 +11,8 @@ import com.somewhere.app.ui.screen.HomeScreen
 import com.somewhere.app.ui.screen.SettingsScreen
 import com.somewhere.app.ui.screen.FindSpotScreen
 import com.somewhere.app.ui.screen.MainPagerScreen
+import com.somewhere.app.ui.screen.TripScreen
+import com.somewhere.app.ui.screen.NotificationScreen
 
 /**
  * Navigation routes for the app.
@@ -19,6 +21,7 @@ object NavDestinations {
     const val MAIN_PAGER = "main_pager"
     const val DISCOVERY = "discovery"
     const val SETTINGS = "settings"
+    const val NOTIFICATIONS = "notifications"
     const val FIND_SPOT = "find_spot/{imageUrl}"
     
     fun createFindSpotRoute(imageUrl: String): String {
@@ -32,10 +35,14 @@ private const val TRANSITION_DURATION = 350
  * Navigation graph — four screens with smooth slide transitions.
  */
 @Composable
-fun SomewhereNavGraph(navController: NavHostController) {
+fun SomewhereNavGraph(
+    navController: NavHostController,
+    startDestination: String = NavDestinations.MAIN_PAGER
+) {
     NavHost(
+        // NOTE: TripScreen uses Google Maps which needs its own transitions
         navController = navController,
-        startDestination = NavDestinations.MAIN_PAGER,
+        startDestination = startDestination,
         enterTransition = {
             slideInHorizontally(
                 initialOffsetX = { fullWidth -> fullWidth },
@@ -65,6 +72,7 @@ fun SomewhereNavGraph(navController: NavHostController) {
             MainPagerScreen(
                 onExplore = { navController.navigate(NavDestinations.DISCOVERY) },
                 onSettings = { navController.navigate(NavDestinations.SETTINGS) },
+                onNotifications = { navController.navigate(NavDestinations.NOTIFICATIONS) },
                 onFindSpot = { imageUrl ->
                     navController.navigate(NavDestinations.createFindSpotRoute(imageUrl))
                 }
@@ -81,6 +89,12 @@ fun SomewhereNavGraph(navController: NavHostController) {
 
         composable(NavDestinations.SETTINGS) {
             SettingsScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+        
+        composable(NavDestinations.NOTIFICATIONS) {
+            NotificationScreen(
                 onBack = { navController.popBackStack() }
             )
         }

@@ -35,6 +35,22 @@ class SettingsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
+    private val _blockedUsers = MutableStateFlow<Set<String>>(emptySet())
+    val blockedUsers: StateFlow<Set<String>> = _blockedUsers.asStateFlow()
+
+    init {
+        loadBlockedUsers()
+    }
+
+    fun loadBlockedUsers() {
+        _blockedUsers.value = repository.getBlockedUsers()
+    }
+
+    fun unblockUser(authorName: String) {
+        repository.unblockUser(authorName)
+        loadBlockedUsers()
+    }
+
     fun deleteAllDrops() {
         _uiState.value = _uiState.value.copy(isClearing = true, message = null)
         viewModelScope.launch {
