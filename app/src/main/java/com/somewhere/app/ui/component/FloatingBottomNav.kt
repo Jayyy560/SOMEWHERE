@@ -66,6 +66,7 @@ fun FloatingBottomNav(
 
     Box(
         modifier = modifier
+            .navigationBarsPadding()
             .padding(bottom = 32.dp)
             .height(64.dp)
             .clip(androidx.compose.foundation.shape.RoundedCornerShape(percent = 50))
