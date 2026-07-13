@@ -462,20 +462,16 @@ fun DiscoveryScreen(
                 )
             }
 
-            // Compass heading HUD and Toggle
+            // Toggle view button (Top Right)
             Row(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
                     .statusBarsPadding()
                     .padding(top = 16.dp, start = 16.dp, end = 16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                CompassHud(
-                    heading = uiState.heading,
-                    accuracyMeters = uiState.locationAccuracyMeters
-                )
                 
                 IconButton(
                     onClick = { showListView = !showListView },
