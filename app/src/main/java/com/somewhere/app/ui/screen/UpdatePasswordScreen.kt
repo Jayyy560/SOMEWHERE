@@ -21,6 +21,7 @@ fun UpdatePasswordScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+    val ambient = com.somewhere.app.ui.theme.LocalAmbientColors.current
 
     Scaffold(
         topBar = {
@@ -111,7 +112,7 @@ fun UpdatePasswordScreen(
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = SomewhereColors.GlowAccent),
+                colors = ButtonDefaults.buttonColors(containerColor = ambient.pulseColor),
                 enabled = !isLoading
             ) {
                 if (isLoading) {

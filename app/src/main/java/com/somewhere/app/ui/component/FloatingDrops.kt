@@ -251,28 +251,28 @@ fun GlassDropBubble(text: String) {
             .shadow(
                 elevation = 24.dp,
                 shape = bubblyShape,
-                ambientColor = Color(0xFF00E5FF).copy(alpha = 0.2f),
-                spotColor = Color(0xFFFF00FF).copy(alpha = 0.3f)
+                ambientColor = com.somewhere.app.ui.theme.LocalAmbientColors.current.shadowAmbient,
+                spotColor = com.somewhere.app.ui.theme.LocalAmbientColors.current.shadowSpot
             )
             .clip(bubblyShape)
             // Base subtle darkness to contrast the reflections
             .background(Color.White.copy(alpha = 0.02f))
-            // Liquid fluid blobs (Cyan)
+            // Liquid fluid blobs (Primary)
             .background(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFF80D8FF).copy(alpha = 0.2f), 
+                        com.somewhere.app.ui.theme.LocalAmbientColors.current.glowPrimary.copy(alpha = 0.2f), 
                         Color.Transparent
                     ),
                     center = Offset(100f, 50f),
                     radius = 300f
                 )
             )
-            // Liquid fluid blobs (Magenta/Purple)
+            // Liquid fluid blobs (Secondary)
             .background(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        Color(0xFFEA80FC).copy(alpha = 0.15f), 
+                        com.somewhere.app.ui.theme.LocalAmbientColors.current.glowSecondary.copy(alpha = 0.15f), 
                         Color.Transparent
                     ),
                     center = Offset(500f, 150f),
@@ -295,11 +295,11 @@ fun GlassDropBubble(text: String) {
                 width = 3.dp,
                 brush = Brush.linearGradient(
                     colors = listOf(
-                        Color.White,                             // Top-left intense glare
-                        Color(0xFF80D8FF).copy(alpha = 0.6f),    // Cyan dispersion
-                        Color.White.copy(alpha = 0.1f),          // Weak sides
-                        Color(0xFFEA80FC).copy(alpha = 0.5f),    // Magenta dispersion
-                        Color.White                              // Bottom-right intense glare
+                        Color.White,                                                                          // Top-left intense glare
+                        com.somewhere.app.ui.theme.LocalAmbientColors.current.glowPrimary.copy(alpha = 0.6f), // Primary dispersion
+                        Color.White.copy(alpha = 0.1f),                                                       // Weak sides
+                        com.somewhere.app.ui.theme.LocalAmbientColors.current.glowSecondary.copy(alpha = 0.5f), // Secondary dispersion
+                        Color.White                                                                           // Bottom-right intense glare
                     ),
                     start = Offset(0f, 0f),
                     end = Offset(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY)

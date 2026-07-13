@@ -10,6 +10,8 @@ import android.widget.Toast
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -24,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -100,6 +103,41 @@ fun DropScreen(
     var recordingStartedAtMillis by remember { mutableStateOf<Long?>(null) }
     var waveformSamples by remember { mutableStateOf(List(16) { 0.12f }) }
     var previewPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            try {
+                // Get file name and size safely
+                var name = "attachment"
+                var size = 0L
+                var type = context.contentResolver.getType(it) ?: "application/octet-stream"
+                
+                context.contentResolver.query(it, null, null, null, null)?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    val sizeIndex = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                    if (cursor.moveToFirst()) {
+                        if (nameIndex != -1) {
+                            name = cursor.getString(nameIndex) ?: "attachment"
+                        }
+                        if (sizeIndex != -1 && !cursor.isNull(sizeIndex)) {
+                            size = cursor.getLong(sizeIndex)
+                        }
+                    }
+                }
+                
+                if (size > 50 * 1024 * 1024) {
+                    scope.launch { snackbarHostState.showSnackbar("File too large. Max 50MB.") }
+                } else {
+                    viewModel.onFileAttached(it, name, size, type)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                scope.launch { snackbarHostState.showSnackbar("Error reading file") }
+            }
+        }
+    }
     
     LaunchedEffect(uiState.capturedImageUri) {
         onCreationStateChanged(uiState.capturedImageUri != null)
@@ -303,12 +341,12 @@ fun DropScreen(
                         }
                         .border(
                             width = 1.5.dp,
-                            color = SomewhereColors.GlowAccent,
+                            color = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor,
                             shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
                         )
                 ) {
                     // Small center dot
-                    Box(modifier = Modifier.size(4.dp).clip(androidx.compose.foundation.shape.CircleShape).background(SomewhereColors.GlowAccent).align(Alignment.Center))
+                    Box(modifier = Modifier.size(4.dp).clip(androidx.compose.foundation.shape.CircleShape).background(com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor).align(Alignment.Center))
                 }
             }
 
@@ -430,7 +468,7 @@ fun DropScreen(
                             Text(
                                 text = "Auto-write",
                                 style = MaterialTheme.typography.labelMedium,
-                                color = SomewhereColors.GlowAccent
+                                color = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
                             )
                         }
 
@@ -503,7 +541,7 @@ fun DropScreen(
                     ) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Surface(
-                                color = if (!uiState.isMoment) SomewhereColors.GlowAccent else SomewhereColors.GlassBackground,
+                                color = if (!uiState.isMoment) com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor else SomewhereColors.GlassBackground,
                                 shape = CircleShape,
                                 onClick = { viewModel.setDropType(false) }
                             ) {
@@ -515,7 +553,7 @@ fun DropScreen(
                                 )
                             }
                             Surface(
-                                color = if (uiState.isMoment) SomewhereColors.GlowAccent else SomewhereColors.GlassBackground,
+                                color = if (uiState.isMoment) com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor else SomewhereColors.GlassBackground,
                                 shape = CircleShape,
                                 onClick = { viewModel.setDropType(true) }
                             ) {
@@ -529,14 +567,14 @@ fun DropScreen(
                         }
                         
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Ghost", style = MaterialTheme.typography.labelSmall, color = if (uiState.isAnonymous) SomewhereColors.GlowAccent else SomewhereColors.TextMuted)
+                            Text("Ghost", style = MaterialTheme.typography.labelSmall, color = if (uiState.isAnonymous) com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor else SomewhereColors.TextMuted)
                             Switch(
                                 checked = uiState.isAnonymous,
                                 onCheckedChange = { viewModel.setAnonymous(it) },
                                 modifier = Modifier.scale(0.8f).padding(start = 4.dp),
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = SomewhereColors.Background,
-                                    checkedTrackColor = SomewhereColors.GlowAccent
+                                    checkedTrackColor = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
                                 )
                             )
                         }
@@ -555,7 +593,7 @@ fun DropScreen(
                                     onClick = { viewModel.setDuration(ms, null) },
                                     colors = ButtonDefaults.textButtonColors(
                                         contentColor = if (isSelected) SomewhereColors.Background else SomewhereColors.TextSecondary,
-                                        containerColor = if (isSelected) SomewhereColors.GlowAccent else androidx.compose.ui.graphics.Color.Transparent
+                                        containerColor = if (isSelected) com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor else androidx.compose.ui.graphics.Color.Transparent
                                     ),
                                     modifier = Modifier.height(28.dp),
                                     contentPadding = PaddingValues(horizontal = 8.dp)
@@ -599,7 +637,7 @@ fun DropScreen(
                                 },
                                 colors = ButtonDefaults.textButtonColors(
                                     contentColor = if (isCustomSelected) SomewhereColors.Background else SomewhereColors.TextSecondary,
-                                    containerColor = if (isCustomSelected) SomewhereColors.GlowAccent else androidx.compose.ui.graphics.Color.Transparent
+                                    containerColor = if (isCustomSelected) com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor else androidx.compose.ui.graphics.Color.Transparent
                                 ),
                                 modifier = Modifier.height(28.dp),
                                 contentPadding = PaddingValues(horizontal = 8.dp)
@@ -618,7 +656,7 @@ fun DropScreen(
                         items(categories) { category ->
                             val isSelected = uiState.category == category
                             Surface(
-                                color = if (isSelected) SomewhereColors.GlowAccent else SomewhereColors.GlassBackground,
+                                color = if (isSelected) com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor else SomewhereColors.GlassBackground,
                                 shape = CircleShape,
                                 onClick = { viewModel.setCategory(category) }
                             ) {
@@ -632,37 +670,94 @@ fun DropScreen(
                         }
                     }
 
+                    // Dead Drop Attachment Preview
+                    if (uiState.deadDropFileUri != null) {
+                        Surface(
+                            color = SomewhereColors.GlassBackground,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(12.dp)
+                            ) {
+                                Icon(
+                                    imageVector = androidx.compose.material.icons.Icons.Default.AttachFile,
+                                    contentDescription = "Attachment",
+                                    tint = SomewhereColors.TextPrimary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = uiState.deadDropFileName ?: "Attachment",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = SomewhereColors.TextPrimary,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                    val sizeMb = (uiState.deadDropFileSize ?: 0L) / (1024f * 1024f)
+                                    Text(
+                                        text = String.format(java.util.Locale.US, "%.2f MB", sizeMb),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = SomewhereColors.TextSecondary
+                                    )
+                                }
+                                IconButton(onClick = { viewModel.clearFile() }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Remove attachment",
+                                        tint = SomewhereColors.TextPrimary
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         SomewhereButton(
                             text = "Retake",
-                            onClick = { viewModel.reset() }
+                            onClick = { viewModel.reset() },
+                            modifier = Modifier.weight(1f)
                         )
 
-                        SomewhereButton(
-                            text = if (uiState.isSaving) "Saving..." else "Mark this place",
-                            enabled = uiState.text.isNotBlank() && !uiState.isSaving,
-                            onClick = {
-                                getCurrentLocation(context) { result ->
-                                    if (result.isFallback) {
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar("Unable to get location")
-                                        }
-                                        return@getCurrentLocation
-                                    }
-
-                                    if (result.accuracyMeters > LocationUtils.ACCURACY_WARNING_METERS) {
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar("Low GPS accuracy")
-                                        }
-                                    }
-
-                                    viewModel.saveDrop(result.latitude, result.longitude)
-                                }
-                            }
-                        )
+                        if (uiState.deadDropFileUri == null) {
+                            SomewhereButton(
+                                text = "Attach File",
+                                onClick = {
+                                    filePickerLauncher.launch("*/*")
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
+
+                    SomewhereButton(
+                        text = if (uiState.isSaving) "Saving..." else "Mark this place",
+                        enabled = uiState.text.isNotBlank() && !uiState.isSaving,
+                        modifier = Modifier.fillMaxWidth(),
+                        onClick = {
+                            getCurrentLocation(context) { result ->
+                                if (result.isFallback) {
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Unable to get location")
+                                    }
+                                    return@getCurrentLocation
+                                }
+
+                                if (result.accuracyMeters > LocationUtils.ACCURACY_WARNING_METERS) {
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Low GPS accuracy")
+                                    }
+                                }
+
+                                viewModel.saveDrop(result.latitude, result.longitude)
+                            }
+                        }
+                    )
                 }
             }
 

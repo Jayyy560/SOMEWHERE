@@ -70,7 +70,12 @@ class DropRepository(
         longitude: Double,
         expiresAt: Long? = null,
         isAnonymous: Boolean = false,
-        category: String? = null
+        category: String? = null,
+        isDeadDrop: Boolean = false,
+        fileUri: String? = null,
+        fileType: String? = null,
+        fileName: String? = null,
+        fileSize: Long? = null
     ): Drop {
         require(text.isNotBlank()) { "Drop text must not be blank" }
 
@@ -78,6 +83,9 @@ class DropRepository(
         val normalizedAudioPath = audioPath?.let { normalizeLocalPath(it) ?: it }
         val uploadedAudioUrl = audioPath?.let { path ->
             uploadAudioAndGetPublicUrl(Uri.parse(path))
+        }
+        val uploadedFileUrl = fileUri?.let { uri ->
+            uploadDeadDropFile(Uri.parse(uri))
         }
 
         val currentUser = SupabaseManager.client.auth.currentUserOrNull()
@@ -98,7 +106,12 @@ class DropRepository(
                 authorAvatarUrl = authorAvatarUrl,
                 expiresAt = expiresAt?.let { Instant.ofEpochMilli(it).toString() },
                 isAnonymous = isAnonymous,
-                category = category
+                category = category,
+                isDeadDrop = isDeadDrop,
+                fileUrl = uploadedFileUrl,
+                fileType = fileType,
+                fileName = fileName,
+                fileSize = fileSize
             )
         )
 
@@ -115,7 +128,12 @@ class DropRepository(
             authorId = currentUser?.id,
             expiresAt = expiresAt,
             isAnonymous = isAnonymous,
-            category = category
+            category = category,
+            isDeadDrop = isDeadDrop,
+            fileUrl = uploadedFileUrl,
+            fileType = fileType,
+            fileName = fileName,
+            fileSize = fileSize
         )
         dao.insert(drop)
         return drop
@@ -386,6 +404,57 @@ class DropRepository(
             .publicUrl(fileName)
     }
 
+    suspend fun uploadDeadDropFile(uri: Uri): String {
+        val inputStream = context.contentResolver.openInputStream(uri)
+        val bytes = inputStream?.readBytes()
+        inputStream?.close()
+
+        require(bytes != null && bytes.isNotEmpty()) { "File bytes are empty" }
+        require(bytes.size <= 50 * 1024 * 1024) { "File exceeds 50MB limit" }
+
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull()
+        val userId = currentUser?.id ?: java.util.UUID.randomUUID().toString()
+        val extension = android.webkit.MimeTypeMap.getFileExtensionFromUrl(uri.toString()) ?: "bin"
+        val fileName = "$userId/${java.util.UUID.randomUUID()}.$extension"
+
+        SupabaseManager.client.storage
+            .from("drops-media")
+            .upload(fileName, bytes, upsert = false)
+
+        return SupabaseManager.client.storage
+            .from("drops-media")
+            .publicUrl(fileName)
+    }
+
+    suspend fun downloadDeadDropFile(url: String, fileName: String): java.io.File {
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val file = java.io.File(context.cacheDir, fileName)
+            if (file.exists()) return@withContext file
+
+            // The fileUrl is a full public URL, so download directly via HTTP
+            val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+            try {
+                connection.connectTimeout = 15000
+                connection.readTimeout = 30000
+                connection.connect()
+                
+                if (connection.responseCode != java.net.HttpURLConnection.HTTP_OK) {
+                    throw Exception("Download failed: HTTP ${connection.responseCode}")
+                }
+                
+                connection.inputStream.use { input ->
+                    file.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            } finally {
+                connection.disconnect()
+            }
+            
+            file
+        }
+    }
+
     private suspend fun fetchRemoteDropsNear(
         lat: Double,
         lon: Double,
@@ -420,7 +489,12 @@ class DropRepository(
                     authorId = remote.authorId,
                     expiresAt = remote.expiresAt?.let { parseTimestamp(it) },
                     isAnonymous = remote.isAnonymous,
-                    category = remote.category
+                    category = remote.category,
+                    isDeadDrop = remote.isDeadDrop,
+                    fileUrl = remote.fileUrl,
+                    fileType = remote.fileType,
+                    fileName = remote.fileName,
+                    fileSize = remote.fileSize
                 )
 
                 val dist = remote.distanceMeters?.toFloat()

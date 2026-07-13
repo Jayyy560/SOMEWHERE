@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
@@ -42,8 +43,16 @@ fun MainPagerScreen(
     onNotifications: () -> Unit,
     onFindSpot: (String) -> Unit
 ) {
-    val pagerState = rememberPagerState(initialPage = 1) { 4 }
+    // Save the current page across process death so the user returns
+    // to the exact tab they were on (e.g., Capture screen).
+    var savedPage by rememberSaveable { mutableIntStateOf(1) }
+    val pagerState = rememberPagerState(initialPage = savedPage) { 4 }
     val coroutineScope = rememberCoroutineScope()
+
+    // Keep savedPage in sync with the pager
+    LaunchedEffect(pagerState.currentPage) {
+        savedPage = pagerState.currentPage
+    }
     
     // Check if keyboard is visible reliably
     val isImeVisible = WindowInsets.isImeVisible

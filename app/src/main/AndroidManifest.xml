@@ -31,6 +31,9 @@
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="${GOOGLE_MAPS_API_KEY}" />
+            
+        <meta-data android:name="com.google.ar.core" android:value="optional" />
+        <meta-data android:name="com.google.android.ar.API_KEY" android:value="${GOOGLE_MAPS_API_KEY}" />
 
         <activity
             android:name=".MainActivity"
@@ -64,5 +67,16 @@
 
         <!-- Sentry Error Tracking -->
         <meta-data android:name="io.sentry.dsn" android:value="https://06fb4af5a32a9028b7fd459068a1c7e2@o4511570601246720.ingest.de.sentry.io/4511570607145040" />
+        
+        <!-- FileProvider for Dead Drops -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>

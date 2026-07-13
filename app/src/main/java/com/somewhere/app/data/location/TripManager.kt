@@ -198,6 +198,12 @@ object TripManager {
                 else -> amount * 1609.34 // miles
             }
         }
+        
+        // 2b. Handle "nearby" / "around me" as shorthand for 2km radius
+        val nearbyRegex = Regex("(?i)\\b(nearby|around me|near me|close by|close to me)\\b")
+        if (radiusMeters == null && nearbyRegex.containsMatchIn(prompt)) {
+            radiusMeters = 2000.0
+        }
 
         // 2. Check for "surprise me"
         val isSurpriseMe = prompt.contains("surprise me", ignoreCase = true) || prompt.contains("take me somewhere", ignoreCase = true)
@@ -226,16 +232,49 @@ object TripManager {
         query = query.replace("surprise me", "", ignoreCase = true)
         query = query.replace("take me somewhere", "", ignoreCase = true)
         query = query.trim()
-        
-        // If they just typed a simple location and no keywords, assume it's the destination
-        // Only do this if it looks like a short place name without spaces, otherwise let it be a semantic query
+        // If they just typed something with no from/to/within keywords, figure out if it's
+        // a DESTINATION (place name) or a SEARCH QUERY (category/intent).
+        // The old logic treated almost everything as a destination, which broke constantly.
         if (origin.isBlank() && destination.isBlank() && radiusMeters == null && !isSurpriseMe && prompt.isNotBlank()) {
-            val routingIntentRegex = Regex("(?i)\\b(the best|closest|nearest|find me the|take me|route me)\\b")
+            // Words/phrases that clearly indicate a search query, NOT a place name
+            val knownQueryWords = listOf(
+                "food", "cafes", "cafe", "coffee", "restaurant", "restaurants",
+                "music", "art", "photography", "photos", "photo", "stories", "story",
+                "hidden", "gems", "gem", "secret", "secrets", "anonymous",
+                "history", "historic", "historical", "event", "events",
+                "recommendation", "recommendations", "memory", "memories",
+                "audio", "voice", "text", "recent", "latest", "new", "newest",
+                "all", "everything", "anything", "drops", "spots", "spot",
+                "best", "worthy", "cool", "interesting", "beautiful", "popular",
+                "nearby", "around", "close"
+            )
+            val promptLower = prompt.lowercase().trim()
+            val promptWords = promptLower.split("\\s+".toRegex())
+
+            // Routing intent: user explicitly wants to GO somewhere
+            val routingIntentRegex = Regex("(?i)\\b(take me to|route me to|navigate to|directions to|go to|drive to)\\b")
             val stronglyImpliesRoute = routingIntentRegex.containsMatchIn(prompt)
-            
-            if (stronglyImpliesRoute || (!prompt.contains(" ") && prompt.length < 20)) {
+
+            // Check if any word in the prompt matches a known query/category word
+            val looksLikeQuery = promptWords.any { word -> knownQueryWords.contains(word) }
+
+            if (stronglyImpliesRoute) {
+                // Explicit routing — strip the routing phrase and use the rest as destination
+                destination = prompt.replace(routingIntentRegex, "").trim()
+                query = ""
+            } else if (looksLikeQuery || promptWords.size > 2) {
+                // Looks like a search query (category words detected, or it's a multi-word phrase)
+                // → treat as a radius search with the full prompt as the query
+                query = prompt
+                radiusMeters = 5000.0  // Default 5km
+            } else if (promptWords.size == 1 && prompt.length < 25) {
+                // Single short word that doesn't match known queries — probably a place name
                 destination = prompt
                 query = ""
+            } else {
+                // Fallback: treat as a query within 5km
+                query = prompt
+                radiusMeters = 5000.0
             }
         }
 

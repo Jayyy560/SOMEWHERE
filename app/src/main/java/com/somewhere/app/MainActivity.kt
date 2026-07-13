@@ -7,8 +7,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.rememberNavController
@@ -19,8 +23,10 @@ import com.somewhere.app.data.location.TripManager
 import com.somewhere.app.data.remote.SupabaseManager
 import com.somewhere.app.ui.screen.AuthScreen
 import com.somewhere.app.ui.navigation.SomewhereNavGraph
+import com.somewhere.app.ui.theme.LocalAmbientColors
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.ui.theme.SomewhereTheme
+import com.somewhere.app.ui.theme.rememberAmbientColors
 import dagger.hilt.android.AndroidEntryPoint
 import io.github.jan.supabase.gotrue.SessionStatus
 import io.github.jan.supabase.gotrue.auth
@@ -28,11 +34,16 @@ import io.github.jan.supabase.gotrue.handleDeeplinks
 import kotlinx.serialization.json.booleanOrNull
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 
 val LocalPipMode = staticCompositionLocalOf { false }
+
+/**
+ * Stable auth categories — we use these instead of the raw SessionStatus so that
+ * the composable tree for AUTHENTICATED is never torn down during the brief
+ * LoadingFromStorage → Authenticated transition on process death.
+ */
+private enum class AuthCategory { LOADING, AUTHENTICATED, NEEDS_PASSWORD, NOT_AUTHENTICATED }
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -64,28 +75,56 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val pipMode by _isPipMode.collectAsState()
-            CompositionLocalProvider(LocalPipMode provides pipMode) {
+            val ambientColors = rememberAmbientColors()
+            val navController = rememberNavController()
+
+            CompositionLocalProvider(
+                LocalPipMode provides pipMode,
+                LocalAmbientColors provides ambientColors
+            ) {
                 SomewhereTheme {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
-                    color = SomewhereColors.Background
-                ) {
-                    val sessionStatus by SupabaseManager.client.auth.sessionStatus
-                        .collectAsState(initial = SessionStatus.NotAuthenticated(false))
+                        color = SomewhereColors.Background
+                    ) {
+                        val sessionStatus by SupabaseManager.client.auth.sessionStatus
+                            .collectAsState(initial = SessionStatus.LoadingFromStorage)
 
-                    when (val status = sessionStatus) {
-                        is SessionStatus.Authenticated -> {
-                            val session = status.session
-                            val hasStrongPassword = session.user?.userMetadata
-                                ?.get("has_strong_password")?.let { 
-                                    if (it is kotlinx.serialization.json.JsonPrimitive) it.booleanOrNull else null 
-                                } ?: false
+                        // Derive a stable auth category. Crucially, once we've been
+                        // AUTHENTICATED we stay AUTHENTICATED during any transient
+                        // LoadingFromStorage phase (which happens on process death).
+                        // This prevents the NavGraph from being torn down & rebuilt,
+                        // which would destroy all saved pager/screen state.
+                        var authCategory by remember { mutableStateOf(AuthCategory.LOADING) }
 
-                            if (hasStrongPassword) {
-                                val navController = rememberNavController()
+                        LaunchedEffect(sessionStatus) {
+                            authCategory = when (val status = sessionStatus) {
+                                is SessionStatus.Authenticated -> {
+                                    val hasStrong = status.session.user?.userMetadata
+                                        ?.get("has_strong_password")?.let {
+                                            if (it is kotlinx.serialization.json.JsonPrimitive) it.booleanOrNull else null
+                                        } ?: false
+                                    if (hasStrong) AuthCategory.AUTHENTICATED else AuthCategory.NEEDS_PASSWORD
+                                }
+                                is SessionStatus.LoadingFromStorage -> {
+                                    // If we were already authenticated, stay that way
+                                    // so the NavGraph isn't destroyed during the reload.
+                                    if (authCategory == AuthCategory.AUTHENTICATED) {
+                                        AuthCategory.AUTHENTICATED
+                                    } else {
+                                        AuthCategory.LOADING
+                                    }
+                                }
+                                else -> AuthCategory.NOT_AUTHENTICATED
+                            }
+                        }
+
+                        when (authCategory) {
+                            AuthCategory.AUTHENTICATED -> {
                                 val startDest = com.somewhere.app.ui.navigation.NavDestinations.MAIN_PAGER
                                 SomewhereNavGraph(navController = navController, startDestination = startDest)
-                            } else {
+                            }
+                            AuthCategory.NEEDS_PASSWORD -> {
                                 com.somewhere.app.ui.screen.UpdatePasswordScreen(
                                     onPasswordUpdated = { },
                                     onSignOut = {
@@ -95,20 +134,18 @@ class MainActivity : ComponentActivity() {
                                     }
                                 )
                             }
-                        }
-                        is SessionStatus.LoadingFromStorage -> {
-                            // Show splash or blank while checking token
-                            androidx.compose.foundation.layout.Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = androidx.compose.ui.Alignment.Center
-                            ) {
-                                com.somewhere.app.ui.component.LiquidLogo()
+                            AuthCategory.LOADING -> {
+                                androidx.compose.foundation.layout.Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = androidx.compose.ui.Alignment.Center
+                                ) {
+                                    com.somewhere.app.ui.component.LiquidLogo()
+                                }
+                            }
+                            AuthCategory.NOT_AUTHENTICATED -> {
+                                AuthScreen()
                             }
                         }
-                        else -> {
-                            AuthScreen()
-                        }
-                    }
                     }
                 }
             }

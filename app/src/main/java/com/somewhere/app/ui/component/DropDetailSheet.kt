@@ -22,18 +22,25 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.ViewInAr
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -61,6 +68,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -116,6 +124,7 @@ fun DropDetailSheet(
     var likeCount by remember { mutableStateOf(0) }
     var comments by remember { mutableStateOf<List<DropComment>>(emptyList()) }
     var commentText by remember { mutableStateOf("") }
+    var isDownloading by remember { mutableStateOf(false) }
     
     LaunchedEffect(drop.id) {
         isLiked = repository.isDropLikedByMe(drop.id)
@@ -194,7 +203,7 @@ fun DropDetailSheet(
                 .shadow(
                     elevation = 24.dp,
                     shape = RoundedCornerShape(20.dp),
-                    ambientColor = SomewhereColors.GlowAccent.copy(alpha = 0.1f)
+                    ambientColor = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor.copy(alpha = 0.1f)
                 )
                 .clip(RoundedCornerShape(20.dp))
                 .background(SomewhereColors.Surface)
@@ -430,7 +439,7 @@ fun DropDetailSheet(
                         modifier = Modifier
                             .size(36.dp)
                             .background(
-                                SomewhereColors.GlowAccent.copy(alpha = 0.15f),
+                                com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor.copy(alpha = 0.15f),
                                 CircleShape
                             )
                     ) {
@@ -441,7 +450,7 @@ fun DropDetailSheet(
                                 Icons.Default.PlayArrow
                             },
                             contentDescription = if (isAudioPlaying) "Pause" else "Play",
-                            tint = SomewhereColors.GlowAccent,
+                            tint = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor,
                             modifier = Modifier.size(18.dp)
                         )
                     }
@@ -454,6 +463,123 @@ fun DropDetailSheet(
                 }
 
                 Spacer(Modifier.height(12.dp))
+            }
+
+            // Dead Drop File Attachment
+            if (drop.isDeadDrop && drop.fileUrl != null) {
+                Spacer(Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(SomewhereColors.Card)
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val icon = when {
+                        drop.fileType?.startsWith("image/") == true -> Icons.Default.Image
+                        drop.fileType?.startsWith("audio/") == true -> Icons.Default.Audiotrack
+                        drop.fileType?.startsWith("video/") == true -> Icons.Default.Movie
+                        drop.fileType?.startsWith("model/") == true -> Icons.Default.ViewInAr
+                        else -> Icons.Default.Description
+                    }
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = "File Type",
+                        tint = SomewhereColors.TextPrimary,
+                        modifier = Modifier.size(32.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = drop.fileName ?: "Encrypted Attachment",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = SomewhereColors.TextPrimary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        val sizeMb = (drop.fileSize ?: 0L) / (1024f * 1024f)
+                        Text(
+                            text = String.format("%.2f MB", sizeMb),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = SomewhereColors.TextSecondary
+                        )
+                    }
+                }
+                
+                Spacer(Modifier.height(8.dp))
+                
+                // Proximity Lock
+                val canDownload = distanceMeters != null && distanceMeters <= 15f
+                
+                Button(
+                    onClick = {
+                        if (canDownload && !isDownloading) {
+                            isDownloading = true
+                            scope.launch {
+                                try {
+                                    val file = repository.downloadDeadDropFile(drop.fileUrl, drop.fileName ?: "drop_${drop.id}")
+                                    
+                                    // Use FileProvider to view the file
+                                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                                        context,
+                                        "${context.packageName}.fileprovider",
+                                        file
+                                    )
+                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
+                                        setDataAndType(uri, drop.fileType ?: "*/*")
+                                        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    }
+                                    context.startActivity(android.content.Intent.createChooser(intent, "Open File"))
+                                } catch (e: Exception) {
+                                    android.widget.Toast.makeText(context, "Download failed", android.widget.Toast.LENGTH_SHORT).show()
+                                } finally {
+                                    isDownloading = false
+                                }
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                        .height(56.dp),
+                    enabled = canDownload && !isDownloading,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (canDownload) com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor else SomewhereColors.CardBorder,
+                        disabledContainerColor = SomewhereColors.CardBorder,
+                        contentColor = SomewhereColors.Background,
+                        disabledContentColor = SomewhereColors.TextMuted
+                    ),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    if (isDownloading) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            color = SomewhereColors.Background,
+                            strokeWidth = 2.dp
+                        )
+                    } else if (canDownload) {
+                        Text(
+                            "Download File",
+                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold)
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = "Locked",
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        val currentDistance = distanceMeters?.toInt() ?: "?"
+                        Text(
+                            "Get closer to download (Current: ${currentDistance}m)",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium)
+                        )
+                    }
+                }
+                
+                Spacer(Modifier.height(16.dp))
             }
 
             // Divider
@@ -485,7 +611,7 @@ fun DropDetailSheet(
                         imageVector = catIcon,
                         contentDescription = drop.category,
                         modifier = Modifier.size(14.dp),
-                        tint = SomewhereColors.GlowAccent
+                        tint = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
                     )
                     if (distanceMeters != null) {
                         Text(
@@ -519,7 +645,7 @@ fun DropDetailSheet(
                             Text(
                                 text = expText,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = SomewhereColors.GlowAccent
+                                color = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
                             )
                         } else {
                             Text(
@@ -751,7 +877,7 @@ fun DropDetailSheet(
                         }
                     }
                 }) {
-                    Icon(Icons.Default.Send, contentDescription = "Send", tint = SomewhereColors.GlowAccent)
+                    Icon(Icons.Default.Send, contentDescription = "Send", tint = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor)
                 }
             }
             
@@ -825,7 +951,7 @@ private fun DetailWaveform(
                     .height((4 + heightScale * 20f).dp)
                     .clip(RoundedCornerShape(1.dp))
                     .background(
-                        if (active) SomewhereColors.GlowAccent.copy(alpha = barAlpha)
+                        if (active) com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor.copy(alpha = barAlpha)
                         else SomewhereColors.TextMuted.copy(alpha = barAlpha)
                     )
             )

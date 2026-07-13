@@ -138,9 +138,10 @@ class TripRepository(private val context: Context) {
         for (point in sampledPoints) {
             try {
                 val params = buildJsonObject {
-                    put("lat", point.latitude)
-                    put("lng", point.longitude)
-                    put("radius_meters", corridorMeters)
+                    put("p_lat", point.latitude)
+                    put("p_lon", point.longitude)
+                    put("p_radius_m", corridorMeters.toInt())
+                    put("p_limit", 100)
                 }
                 val drops = SupabaseManager.client.postgrest.rpc("nearby_drops", params)
                     .decodeList<NearbyDrop>()
@@ -178,9 +179,10 @@ class TripRepository(private val context: Context) {
 
         try {
             val params = buildJsonObject {
-                put("lat", centerLat)
-                put("lng", centerLng)
-                put("radius_meters", radiusMeters)
+                put("p_lat", centerLat)
+                put("p_lon", centerLng)
+                put("p_radius_m", radiusMeters.toInt())
+                put("p_limit", 100)
             }
             val drops = SupabaseManager.client.postgrest.rpc("nearby_drops", params)
                 .decodeList<NearbyDrop>()

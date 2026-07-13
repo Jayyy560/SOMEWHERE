@@ -21,11 +21,16 @@ import androidx.compose.material.icons.filled.Map
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import io.github.sceneview.ar.ARSceneView
+import dev.romainguy.kotlin.math.Float3
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -72,6 +77,7 @@ fun DiscoveryScreen(
     val density = LocalDensity.current
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
     val screenWidthPx = with(density) { screenWidthDp.dp.toPx() }
+    val ambient = com.somewhere.app.ui.theme.LocalAmbientColors.current
 
     // Text to Speech for Curator
     val tts = remember { mutableStateOf<TextToSpeech?>(null) }
@@ -147,37 +153,290 @@ fun DiscoveryScreen(
             var showListView by remember { mutableStateOf(false) }
 
             // Fullscreen camera preview
+            var arCoreSupported by remember { mutableStateOf<Boolean?>(null) }
+            LaunchedEffect(Unit) {
+                val availability = com.google.ar.core.ArCoreApk.getInstance().checkAvailability(context)
+                if (availability.isTransient) {
+                    kotlinx.coroutines.delay(200)
+                    arCoreSupported = com.google.ar.core.ArCoreApk.getInstance().checkAvailability(context) == com.google.ar.core.ArCoreApk.Availability.SUPPORTED_INSTALLED
+                } else {
+                    arCoreSupported = availability == com.google.ar.core.ArCoreApk.Availability.SUPPORTED_INSTALLED
+                }
+            }
+
+            var viewMatrix by remember { mutableStateOf<FloatArray?>(null) }
+            var projMatrix by remember { mutableStateOf<FloatArray?>(null) }
+            var cameraPos by remember { mutableStateOf(floatArrayOf(0f, 0f, 0f)) }
+            var arViewWidthPx by remember { mutableStateOf(0) }
+            var arViewHeightPx by remember { mutableStateOf(0) }
+
             if (!showListView) {
-                AndroidView(
-                    factory = { ctx ->
-                        val previewView = PreviewView(ctx).apply {
-                            scaleType = PreviewView.ScaleType.FILL_CENTER
+                if (arCoreSupported == true) {
+                    AndroidView(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onGloballyPositioned { coords ->
+                                arViewWidthPx = coords.size.width
+                                arViewHeightPx = coords.size.height
+                            },
+                        factory = { ctx ->
+                            ARSceneView(ctx).apply {
+                                planeRenderer.isVisible = false
+                                configureSession { session, config ->
+                                    config.geospatialMode = com.google.ar.core.Config.GeospatialMode.ENABLED
+                                }
+                                onSessionUpdated = { session, frame ->
+                                    val cameraPose = frame.camera.pose
+                                    
+                                    val earth = session.earth
+                                    val heading: Float
+                                    if (earth?.trackingState == com.google.ar.core.TrackingState.TRACKING) {
+                                        heading = earth.cameraGeospatialPose.heading.toFloat()
+                                        viewModel.updateArCoreHeading(heading)
+                                    } else {
+                                        heading = viewModel.currentHeading
+                                    }
+                                    com.somewhere.app.util.ARUtils.calibrateNorth(cameraPose, heading)
+
+                                    val state = viewModel.uiState.value
+                                    if (state.hasLocation && state.nearbyDrops.isNotEmpty()) {
+                                        val drops = state.nearbyDrops.mapIndexed { index, item ->
+                                            Pair(item.drop.id, Pair(item.drop.latitude, item.drop.longitude))
+                                        }
+                                        val heightOffsets = state.nearbyDrops.mapIndexed { index, item ->
+                                            val h = when (index) {
+                                                0 -> -0.2f
+                                                1 -> 0.4f
+                                                2 -> -0.7f
+                                                3 -> 0.9f
+                                                4 -> -1.2f
+                                                5 -> 1.4f
+                                                else -> (if (index % 2 == 0) -1f else 1f) * (0.3f + index * 0.25f)
+                                            }
+                                            item.drop.id to h
+                                        }.toMap()
+
+                                        com.somewhere.app.util.ARUtils.recomputeAllPositions(
+                                            cameraPose = cameraPose,
+                                            userLat = state.userLat,
+                                            userLon = state.userLon,
+                                            drops = drops,
+                                            heightOffsets = heightOffsets
+                                        )
+                                    }
+
+                                    // Extract matrices for 2.5D projection
+                                    // IMPORTANT: Create new array copies so Compose detects the state change
+                                    val vMatrix = FloatArray(16)
+                                    frame.camera.getViewMatrix(vMatrix, 0)
+                                    viewMatrix = vMatrix.copyOf()
+                                    
+                                    val pMatrix = FloatArray(16)
+                                    frame.camera.getProjectionMatrix(pMatrix, 0, 0.1f, 100f)
+                                    projMatrix = pMatrix.copyOf()
+                                    
+                                    cameraPos = cameraPose.translation.copyOf()
+                                }
+                            }
                         }
+                    )
+                    
+                    // 2.5D Overlay layer drawn ON TOP of the ARSceneView
+                    // KEY: No spring animation — drops must track the camera INSTANTLY
+                    // like real-world objects do. Any lag = "sticker on screen" feeling.
+                    val currentViewMatrix = viewMatrix
+                    val currentProjMatrix = projMatrix
+                    if (arViewWidthPx > 0 && arViewHeightPx > 0 && currentViewMatrix != null && currentProjMatrix != null) {
+                        val halfCardWidthPx = with(density) { 80.dp.toPx().toInt() }
+                        val halfCardHeightPx = with(density) { 50.dp.toPx().toInt() }
 
-                        val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
-                        cameraProviderFuture.addListener({
-                            val cameraProvider = cameraProviderFuture.get()
-                            val preview = Preview.Builder().build().also {
-                                it.surfaceProvider = previewView.surfaceProvider
-                            }
-
-                            try {
-                                cameraProvider.unbindAll()
-                                cameraProvider.bindToLifecycle(
-                                    lifecycleOwner,
-                                    CameraSelector.DEFAULT_BACK_CAMERA,
-                                    preview
+                        uiState.nearbyDrops.forEach { item ->
+                            val worldPos = com.somewhere.app.util.ARUtils.getWorldPosition(item.drop.id)
+                            if (worldPos != null) {
+                                val screenPos = com.somewhere.app.util.ARUtils.projectToScreen(
+                                    worldPos, currentViewMatrix, currentProjMatrix, arViewWidthPx, arViewHeightPx
                                 )
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                                android.widget.Toast.makeText(ctx, "Failed to initialize camera", android.widget.Toast.LENGTH_LONG).show()
-                            }
-                        }, androidx.core.content.ContextCompat.getMainExecutor(ctx))
+                                if (screenPos != null) {
+                                    val dx = cameraPos[0] - worldPos[0]
+                                    val dy = cameraPos[1] - worldPos[1]
+                                    val dz = cameraPos[2] - worldPos[2]
+                                    val distance = kotlin.math.sqrt(dx*dx + dy*dy + dz*dz)
 
-                        previewView
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
+                                    // Perspective scale from projection (closer = bigger, far = smaller)
+                                    // Wider range than before so depth difference is clearly visible
+                                    val perspectiveScale = (3.5f / distance.coerceAtLeast(1f)).coerceIn(0.35f, 1.3f)
+
+                                    // Atmospheric fade — far drops get slightly transparent (depth cue)
+                                    val distanceAlpha = (1f - (distance - 5f) / 50f).coerceIn(0.4f, 1f)
+
+                                    // Ground shadow projected below the card for spatial grounding
+                                    val shadowScreenPos = com.somewhere.app.util.ARUtils.projectToScreen(
+                                        floatArrayOf(worldPos[0], worldPos[1] - 0.8f, worldPos[2]),
+                                        currentViewMatrix, currentProjMatrix, arViewWidthPx, arViewHeightPx
+                                    )
+
+                                    // Draw ground shadow first (behind the card)
+                                    if (shadowScreenPos != null) {
+                                        val shadowScale = perspectiveScale * 0.6f
+                                        Box(
+                                            modifier = Modifier
+                                                .offset {
+                                                    androidx.compose.ui.unit.IntOffset(
+                                                        shadowScreenPos.first.toInt() - (halfCardWidthPx * 0.5f).toInt(),
+                                                        shadowScreenPos.second.toInt()
+                                                    )
+                                                }
+                                                .graphicsLayer {
+                                                    scaleX = shadowScale * 1.4f
+                                                    scaleY = shadowScale * 0.3f
+                                                    alpha = (0.3f * distanceAlpha).coerceIn(0f, 0.3f)
+                                                }
+                                                .size(120.dp, 40.dp)
+                                                .background(
+                                                    brush = Brush.radialGradient(
+                                                        colors = listOf(
+                                                            Color.Black.copy(alpha = 0.5f),
+                                                            Color.Transparent
+                                                        )
+                                                    ),
+                                                    shape = CircleShape
+                                                )
+                                        )
+                                    }
+
+                                    // Draw the drop card — RAW coordinates, NO spring animation
+                                    Box(
+                                        modifier = Modifier
+                                            .offset {
+                                                androidx.compose.ui.unit.IntOffset(
+                                                    screenPos.first.toInt() - halfCardWidthPx,
+                                                    screenPos.second.toInt() - halfCardHeightPx
+                                                )
+                                            }
+                                            .graphicsLayer {
+                                                scaleX = perspectiveScale
+                                                scaleY = perspectiveScale
+                                                alpha = distanceAlpha
+                                            }
+                                    ) {
+                                        if (item.isNewlyDiscovered) {
+                                            PingPulse(modifier = Modifier.align(Alignment.Center))
+                                        }
+                                        DropOverlayCard(
+                                            item = item,
+                                            onTap = {
+                                                if (item.isUnlocked) viewModel.selectDrop(item)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                } else if (arCoreSupported == false) {
+                    // Fallback to CameraX
+                    AndroidView(
+                        factory = { ctx ->
+                            val previewView = androidx.camera.view.PreviewView(ctx).apply {
+                                scaleType = androidx.camera.view.PreviewView.ScaleType.FILL_CENTER
+                            }
+
+                            val cameraProviderFuture = androidx.camera.lifecycle.ProcessCameraProvider.getInstance(ctx)
+                            cameraProviderFuture.addListener({
+                                val cameraProvider = cameraProviderFuture.get()
+                                val preview = androidx.camera.core.Preview.Builder().build().also {
+                                    it.surfaceProvider = previewView.surfaceProvider
+                                }
+
+                                try {
+                                    cameraProvider.unbindAll()
+                                    cameraProvider.bindToLifecycle(
+                                        lifecycleOwner,
+                                        androidx.camera.core.CameraSelector.DEFAULT_BACK_CAMERA,
+                                        preview
+                                    )
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            }, androidx.core.content.ContextCompat.getMainExecutor(ctx))
+
+                            previewView
+                        },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    
+                    // Compass fallback overlay
+                    val drops = uiState.nearbyDrops
+                    val zoneIndex = mutableMapOf<String, Int>()
+
+                    drops.forEachIndexed { index, item ->
+                        val pixelsPerDegree = screenWidthPx / 60f
+                        val horizontalOffsetPx = item.angleDegrees * pixelsPerDegree
+
+                        val zone = when {
+                            item.isPrimary -> "primary"
+                            item.angleDegrees < -5f -> "left"
+                            item.angleDegrees > 5f -> "right"
+                            else -> "center"
+                        }
+                        val slot = zoneIndex[zone] ?: 0
+                        zoneIndex[zone] = slot + 1
+
+                        val verticalOffsetDp = when (index) {
+                            0 -> 0.dp
+                            1 -> (-90).dp
+                            2 -> 90.dp
+                            3 -> (-180).dp
+                            4 -> 180.dp
+                            5 -> (-260).dp
+                            6 -> 260.dp
+                            else -> {
+                                val sign = if (index % 2 == 0) -1 else 1
+                                val magnitude = 100 + index * 30
+                                (sign * magnitude).dp
+                            }
+                        }
+                        val verticalOffsetPx = with(density) { verticalOffsetDp.toPx() }
+
+                        val animatedHorizontalOffset by animateFloatAsState(
+                            targetValue = horizontalOffsetPx,
+                            animationSpec = spring(stiffness = 15f, dampingRatio = 0.9f),
+                            label = "horizontalOffset"
+                        )
+                        
+                        val animatedVerticalOffset by animateFloatAsState(
+                            targetValue = verticalOffsetPx,
+                            animationSpec = spring(stiffness = 15f, dampingRatio = 0.9f),
+                            label = "verticalOffset"
+                        )
+
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .offset {
+                                    androidx.compose.ui.unit.IntOffset(
+                                        x = animatedHorizontalOffset.toInt(),
+                                        y = animatedVerticalOffset.toInt()
+                                    )
+                                }
+                        ) {
+                            if (item.isNewlyDiscovered) {
+                                PingPulse(
+                                    modifier = Modifier.align(Alignment.Center)
+                                )
+                            }
+                            DropOverlayCard(
+                                item = item,
+                                onTap = {
+                                    if (item.isUnlocked) {
+                                        viewModel.selectDrop(item)
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
             } else {
                 // List View Fallback
                 Box(modifier = Modifier.fillMaxSize().background(SomewhereColors.Background)) {
@@ -196,87 +455,6 @@ fun DiscoveryScreen(
                     }
                 }
             }
-
-            // Overlay cards positioned by compass offset (only in AR mode)
-            if (!showListView) {
-                val drops = uiState.nearbyDrops
-            val zoneIndex = mutableMapOf<String, Int>()
-
-            drops.forEachIndexed { index, item ->
-                // Map the angular difference to screen pixels. 
-                // A typical phone camera has roughly a 60 degree horizontal FOV (±30 degrees).
-                // So an angle of 30 degrees should put the card at the very edge of the screen.
-                val pixelsPerDegree = screenWidthPx / 60f
-                val horizontalOffsetPx = item.angleDegrees * pixelsPerDegree
-
-                // Group drops by horizontal zone, then stagger vertically within each zone.
-                // This prevents cards at similar bearings from overlapping.
-                val zone = when {
-                    item.isPrimary -> "primary"
-                    item.angleDegrees < -5f -> "left"
-                    item.angleDegrees > 5f -> "right"
-                    else -> "center"
-                }
-                val slot = zoneIndex[zone] ?: 0
-                zoneIndex[zone] = slot + 1
-
-                val verticalOffsetDp = when (index) {
-                    0 -> 0.dp
-                    1 -> (-90).dp
-                    2 -> 90.dp
-                    3 -> (-180).dp
-                    4 -> 180.dp
-                    5 -> (-260).dp
-                    6 -> 260.dp
-                    else -> {
-                        val sign = if (index % 2 == 0) -1 else 1
-                        val magnitude = 100 + index * 30
-                        (sign * magnitude).dp
-                    }
-                }
-                val verticalOffsetPx = with(density) { verticalOffsetDp.toPx() }
-
-                val animatedHorizontalOffset by animateFloatAsState(
-                    targetValue = horizontalOffsetPx,
-                    animationSpec = spring(stiffness = 15f, dampingRatio = 0.9f),
-                    label = "horizontalOffset"
-                )
-                
-                val animatedVerticalOffset by animateFloatAsState(
-                    targetValue = verticalOffsetPx,
-                    animationSpec = spring(stiffness = 15f, dampingRatio = 0.9f),
-                    label = "verticalOffset"
-                )
-
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .offset {
-                            IntOffset(
-                                x = animatedHorizontalOffset.toInt(),
-                                y = animatedVerticalOffset.toInt()
-                            )
-                        }
-                ) {
-                    // Ping pulse for newly discovered items
-                    if (item.isNewlyDiscovered) {
-                        PingPulse(
-                            modifier = Modifier.align(Alignment.Center)
-                        )
-                    }
-
-                    DropOverlayCard(
-                        item = item,
-                        onTap = {
-                            if (item.isUnlocked) {
-                                viewModel.selectDrop(item)
-                            }
-                        }
-                    )
-                }
-            }
-            }
-
             // Empty state — animated radar pulse
             if (uiState.hasLocation && uiState.nearbyDrops.isEmpty() && !showListView) {
                 RadarEmptyState(
@@ -309,7 +487,7 @@ fun DiscoveryScreen(
                     Icon(
                         imageVector = if (showListView) Icons.Default.Map else Icons.Default.List,
                         contentDescription = "Toggle View",
-                        tint = SomewhereColors.GlowAccent
+                        tint = ambient.pulseColor
                     )
                 }
             }
@@ -393,7 +571,7 @@ fun DiscoveryScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = SomewhereColors.GlassBackground),
                             elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
                         ) {
-                            Icon(Icons.Default.AutoAwesome, contentDescription = "AI", modifier = Modifier.size(16.dp), tint = SomewhereColors.GlowAccent)
+                            Icon(Icons.Default.AutoAwesome, contentDescription = "AI", modifier = Modifier.size(16.dp), tint = ambient.pulseColor)
                             Spacer(Modifier.width(6.dp))
                             Text("Summary", color = SomewhereColors.TextPrimary, style = MaterialTheme.typography.labelMedium)
                         }
@@ -403,7 +581,7 @@ fun DiscoveryScreen(
                             colors = ButtonDefaults.buttonColors(containerColor = SomewhereColors.GlassBackground),
                             elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
                         ) {
-                            Icon(Icons.Default.Hearing, contentDescription = "Whisper", modifier = Modifier.size(16.dp), tint = SomewhereColors.GlowAccent)
+                            Icon(Icons.Default.Hearing, contentDescription = "Whisper", modifier = Modifier.size(16.dp), tint = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor)
                             Spacer(Modifier.width(6.dp))
                             Text("Whisper", color = SomewhereColors.TextPrimary, style = MaterialTheme.typography.labelMedium)
                         }
@@ -471,21 +649,21 @@ fun DiscoveryScreen(
                     containerColor = SomewhereColors.Card,
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.AutoAwesome, null, tint = SomewhereColors.GlowAccent)
+                            Icon(Icons.Default.AutoAwesome, null, tint = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor)
                             Spacer(Modifier.width(8.dp))
                             Text("Place Summary", color = SomewhereColors.TextPrimary)
                         }
                     },
                     text = {
                         if (uiState.isSummarizing) {
-                            CircularProgressIndicator(color = SomewhereColors.GlowAccent)
+                            CircularProgressIndicator(color = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor)
                         } else {
                             Text(uiState.summaryText ?: "", color = SomewhereColors.TextSecondary)
                         }
                     },
                     confirmButton = {
                         TextButton(onClick = { viewModel.clearSummary() }) {
-                            Text("Close", color = SomewhereColors.GlowAccent)
+                            Text("Close", color = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor)
                         }
                     }
                 )
@@ -534,7 +712,7 @@ private fun CompassHud(
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.sp
                 ),
-                color = SomewhereColors.GlowAccent
+                color = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
             )
             Text(
                 text = "${heading.toInt()}°",
@@ -670,7 +848,7 @@ private fun RadarEmptyState(
                     .scale(ring1Scale)
                     .alpha(ring1Alpha)
                     .background(
-                        SomewhereColors.GlowAccent.copy(alpha = 0.3f),
+                        com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor.copy(alpha = 0.3f),
                         CircleShape
                     )
             )
@@ -680,7 +858,7 @@ private fun RadarEmptyState(
                     .scale(ring2Scale)
                     .alpha(ring2Alpha)
                     .background(
-                        SomewhereColors.GlowAccent.copy(alpha = 0.2f),
+                        com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor.copy(alpha = 0.2f),
                         CircleShape
                     )
             )
@@ -699,7 +877,7 @@ private fun RadarEmptyState(
             Box(
                 modifier = Modifier
                     .size(8.dp)
-                    .background(SomewhereColors.GlowAccent, CircleShape)
+                    .background(com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor, CircleShape)
             )
         }
 

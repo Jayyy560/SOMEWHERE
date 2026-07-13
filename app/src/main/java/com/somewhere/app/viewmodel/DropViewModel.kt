@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.somewhere.app.data.repository.DropRepository
+import androidx.lifecycle.SavedStateHandle
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,7 +22,8 @@ import javax.inject.Inject
  */
 @HiltViewModel
 class DropViewModel @Inject constructor(
-    private val repository: DropRepository
+    private val repository: DropRepository,
+    private val savedStateHandle: SavedStateHandle
 ) : ViewModel() {
 
     data class DropUiState(
@@ -35,11 +37,37 @@ class DropViewModel @Inject constructor(
         val durationMs: Long = 3600000L, // 1 hour default
         val customDurationLabel: String? = null,
         val category: String = "Story",
-        val isAnonymous: Boolean = false
+        val isAnonymous: Boolean = false,
+        val deadDropFileUri: Uri? = null,
+        val deadDropFileName: String? = null,
+        val deadDropFileSize: Long? = null,
+        val deadDropFileType: String? = null
     )
 
-    private val _uiState = MutableStateFlow(DropUiState())
+    private val _uiState = MutableStateFlow(
+        DropUiState(
+            capturedImageUri = savedStateHandle.get<Uri>("capturedImageUri"),
+            text = savedStateHandle.get<String>("text") ?: "",
+            deadDropFileUri = savedStateHandle.get<Uri>("deadDropFileUri"),
+            deadDropFileName = savedStateHandle.get<String>("deadDropFileName"),
+            deadDropFileSize = savedStateHandle.get<Long>("deadDropFileSize"),
+            deadDropFileType = savedStateHandle.get<String>("deadDropFileType")
+        )
+    )
     val uiState: StateFlow<DropUiState> = _uiState.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _uiState.collect { state ->
+                savedStateHandle["capturedImageUri"] = state.capturedImageUri
+                savedStateHandle["text"] = state.text
+                savedStateHandle["deadDropFileUri"] = state.deadDropFileUri
+                savedStateHandle["deadDropFileName"] = state.deadDropFileName
+                savedStateHandle["deadDropFileSize"] = state.deadDropFileSize
+                savedStateHandle["deadDropFileType"] = state.deadDropFileType
+            }
+        }
+    }
 
     fun onPhotoCaptured(uri: Uri) {
         _uiState.update { it.copy(capturedImageUri = uri) }
@@ -93,6 +121,28 @@ class DropViewModel @Inject constructor(
         _uiState.update { it.copy(recordedAudioUri = null) }
     }
 
+    fun onFileAttached(uri: Uri, name: String, size: Long, type: String) {
+        _uiState.update { 
+            it.copy(
+                deadDropFileUri = uri,
+                deadDropFileName = name,
+                deadDropFileSize = size,
+                deadDropFileType = type
+            )
+        }
+    }
+
+    fun clearFile() {
+        _uiState.update { 
+            it.copy(
+                deadDropFileUri = null,
+                deadDropFileName = null,
+                deadDropFileSize = null,
+                deadDropFileType = null
+            )
+        }
+    }
+
     fun saveDrop(latitude: Double, longitude: Double) {
         val state = _uiState.value
         val imageUri = state.capturedImageUri ?: return
@@ -111,7 +161,12 @@ class DropViewModel @Inject constructor(
                     longitude = longitude,
                     expiresAt = expiresAt,
                     isAnonymous = state.isAnonymous,
-                    category = state.category
+                    category = state.category,
+                    isDeadDrop = state.deadDropFileUri != null,
+                    fileUri = state.deadDropFileUri?.toString(),
+                    fileType = state.deadDropFileType,
+                    fileName = state.deadDropFileName,
+                    fileSize = state.deadDropFileSize
                 )
                 _uiState.update { it.copy(isSaving = false, isSaved = true) }
             } catch (e: Exception) {

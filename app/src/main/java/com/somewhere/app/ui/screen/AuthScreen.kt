@@ -46,6 +46,7 @@ fun AuthScreen(
     viewModel: AuthViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val ambient = com.somewhere.app.ui.theme.LocalAmbientColors.current
     var visible by remember { mutableStateOf(false) }
     var passwordVisible by remember { mutableStateOf(false) }
     val reduceMotion = rememberReduceMotionEnabled()
@@ -178,7 +179,7 @@ fun AuthScreen(
                 checked = isAgreed,
                 onCheckedChange = { isAgreed = it },
                 colors = androidx.compose.material3.CheckboxDefaults.colors(
-                    checkedColor = SomewhereColors.GlowAccent,
+                    checkedColor = ambient.pulseColor,
                     uncheckedColor = SomewhereColors.TextMuted
                 )
             )
@@ -186,19 +187,19 @@ fun AuthScreen(
             val annotatedString = androidx.compose.ui.text.buildAnnotatedString {
                 append("I agree to the ")
                 pushStringAnnotation("TOS", "Terms of Service")
-                withStyle(androidx.compose.ui.text.SpanStyle(color = SomewhereColors.GlowAccent, fontWeight = FontWeight.Bold)) {
+                withStyle(androidx.compose.ui.text.SpanStyle(color = ambient.pulseColor, fontWeight = FontWeight.Bold)) {
                     append("Terms of Service")
                 }
                 pop()
                 append(", ")
                 pushStringAnnotation("PRIVACY", "Privacy Policy")
-                withStyle(androidx.compose.ui.text.SpanStyle(color = SomewhereColors.GlowAccent, fontWeight = FontWeight.Bold)) {
+                withStyle(androidx.compose.ui.text.SpanStyle(color = ambient.pulseColor, fontWeight = FontWeight.Bold)) {
                     append("Privacy Policy")
                 }
                 pop()
                 append(", and ")
                 pushStringAnnotation("COMMUNITY", "Community Guidelines")
-                withStyle(androidx.compose.ui.text.SpanStyle(color = SomewhereColors.GlowAccent, fontWeight = FontWeight.Bold)) {
+                withStyle(androidx.compose.ui.text.SpanStyle(color = ambient.pulseColor, fontWeight = FontWeight.Bold)) {
                     append("Community Guidelines")
                 }
                 pop()

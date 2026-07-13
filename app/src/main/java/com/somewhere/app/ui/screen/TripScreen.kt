@@ -305,19 +305,19 @@ private fun TripInputPhase(
         val shape = if (uiState.isLoading) com.somewhere.app.ui.component.WavyPillShape(waveProgress, 2.5f) else RoundedCornerShape(percent = 50)
         
         val primaryGlow by androidx.compose.animation.animateColorAsState(
-            targetValue = if (uiState.isLoading) Color(0xFF80D8FF) else Color.Transparent,
+            targetValue = if (uiState.isLoading) com.somewhere.app.ui.theme.LocalAmbientColors.current.glowPrimary else Color.Transparent,
             label = "primaryGlow"
         )
         val secondaryGlow by androidx.compose.animation.animateColorAsState(
-            targetValue = if (uiState.isLoading) Color(0xFFEA80FC) else Color.Transparent,
+            targetValue = if (uiState.isLoading) com.somewhere.app.ui.theme.LocalAmbientColors.current.glowSecondary else Color.Transparent,
             label = "secondaryGlow"
         )
         val shadowAmbient by androidx.compose.animation.animateColorAsState(
-            targetValue = if (uiState.isLoading) Color(0xFF00E5FF) else Color.Black,
+            targetValue = if (uiState.isLoading) com.somewhere.app.ui.theme.LocalAmbientColors.current.shadowAmbient else Color.Black,
             label = "shadowAmbient"
         )
         val shadowSpot by androidx.compose.animation.animateColorAsState(
-            targetValue = if (uiState.isLoading) Color(0xFFFF00FF) else Color.Black,
+            targetValue = if (uiState.isLoading) com.somewhere.app.ui.theme.LocalAmbientColors.current.shadowSpot else Color.Black,
             label = "shadowSpot"
         )
         
@@ -405,12 +405,45 @@ private fun TripInputPhase(
                 
                 Box(modifier = Modifier.weight(1f)) {
                     if (textValue.text.isEmpty()) {
-                        Text(
-                            "Discover Drops",
-                            color = Color.White.copy(alpha = 0.7f),
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Medium
+                        // Rotating placeholder hints to teach users what to type
+                        val hints = remember {
+                            listOf(
+                                "food spots within 2km",
+                                "hidden gems near Connaught Place",
+                                "surprise me",
+                                "photography to India Gate",
+                                "music events nearby",
+                                "stories within 5km"
+                            )
+                        }
+                        var hintIndex by remember { mutableStateOf(0) }
+                        LaunchedEffect(Unit) {
+                            while (true) {
+                                kotlinx.coroutines.delay(3000)
+                                hintIndex = (hintIndex + 1) % hints.size
+                            }
+                        }
+                        val hintAlpha by animateFloatAsState(
+                            targetValue = 1f,
+                            animationSpec = tween(400, easing = EaseOutCubic),
+                            label = "hintAlpha"
                         )
+                        // Use key to trigger re-animation on index change
+                        androidx.compose.animation.AnimatedContent(
+                            targetState = hintIndex,
+                            transitionSpec = {
+                                (fadeIn(tween(300)) + slideInVertically { it / 2 }) togetherWith
+                                    (fadeOut(tween(200)) + slideOutVertically { -it / 2 })
+                            },
+                            label = "hintSwap"
+                        ) { index ->
+                            Text(
+                                hints[index],
+                                color = Color.White.copy(alpha = 0.45f),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
                     }
                     BasicTextField(
                         value = textValue,
@@ -508,38 +541,84 @@ private fun TripInputPhase(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // ── Quick Searches ──
+        // ── Quick Action Chips ── (fire search immediately on tap)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val suggestions = listOf(
-                "Best food spots",
-                "Photo worthy",
-                "Hidden gems",
-                "Live music",
-                "Cafes",
-                "Historic sites"
+            data class QuickAction(val emoji: String, val label: String, val query: String)
+            val quickActions = listOf(
+                QuickAction("📍", "Nearby", "all drops within 2km"),
+                QuickAction("🎲", "Surprise Me", "surprise me"),
+                QuickAction("🆕", "Recent", "recent within 5km")
             )
-            items(suggestions) { suggestion ->
-                SuggestionChip(
-                    onClick = { 
-                        val newPrompt = if (textValue.text.isBlank()) suggestion else "${textValue.text} $suggestion"
-                        onPromptChange(newPrompt, newPrompt.length)
-                    },
-                    label = {
+            items(quickActions) { action ->
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(SomewhereColors.GlassBackground)
+                        .border(0.5.dp, SomewhereColors.GlassBorder, RoundedCornerShape(20.dp))
+                        .clickable {
+                            onPromptChange(action.query, action.query.length)
+                            onSearch()
+                        }
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(action.emoji, fontSize = 14.sp)
                         Text(
-                            suggestion,
+                            action.label,
                             fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
                             color = SomewhereColors.TextPrimary
                         )
-                    },
-                    shape = RoundedCornerShape(20.dp),
-                    colors = SuggestionChipDefaults.suggestionChipColors(
-                        containerColor = Color.Transparent
-                    ),
-                    border = SuggestionChipDefaults.suggestionChipBorder(
-                        enabled = true,
-                        borderColor = Color.White.copy(alpha = 0.1f)
-                    )
-                )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // ── Category Filter Chips ── (fire search immediately on tap)
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            data class CategoryChip(val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val query: String)
+            val categoryChips = listOf(
+                CategoryChip(Icons.Default.Restaurant, "Food", "food within 5km"),
+                CategoryChip(Icons.Default.CameraAlt, "Photography", "photography within 5km"),
+                CategoryChip(Icons.Default.MusicNote, "Music", "music within 5km"),
+                CategoryChip(Icons.Default.VisibilityOff, "Hidden Spots", "hidden spot within 5km"),
+                CategoryChip(Icons.Default.Book, "Stories", "story within 5km"),
+                CategoryChip(Icons.Default.AccountBalance, "History", "history within 5km"),
+                CategoryChip(Icons.Default.Star, "Recommendations", "recommendation within 5km")
+            )
+            items(categoryChips) { chip ->
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .border(0.5.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+                        .clickable {
+                            onPromptChange(chip.query, chip.query.length)
+                            onSearch()
+                        }
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            chip.icon,
+                            contentDescription = chip.label,
+                            modifier = Modifier.size(14.dp),
+                            tint = SomewhereColors.TextSecondary
+                        )
+                        Text(
+                            chip.label,
+                            fontSize = 12.sp,
+                            color = SomewhereColors.TextSecondary
+                        )
+                    }
+                }
             }
         }
 
@@ -600,12 +679,12 @@ private fun TripMapPhase(
                 if (uiState.routePolyline.isNotEmpty()) {
                     Polyline(
                         points = uiState.routePolyline,
-                        color = SomewhereColors.GlowAccent,
+                        color = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor,
                         width = 12f
                     )
                     Polyline(
                         points = uiState.routePolyline,
-                        color = SomewhereColors.GlowAccentDim,
+                        color = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor.copy(alpha = 0.5f),
                         width = 24f
                     )
                 }
@@ -691,13 +770,13 @@ private fun TripMapPhase(
             if (uiState.routePolyline.isNotEmpty()) {
                 Polyline(
                     points = uiState.routePolyline,
-                    color = SomewhereColors.GlowAccent,
+                    color = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor,
                     width = 12f
                 )
                 // Subtle outer glow polyline
                 Polyline(
                     points = uiState.routePolyline,
-                    color = SomewhereColors.GlowAccentDim,
+                    color = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor.copy(alpha = 0.5f),
                     width = 24f
                 )
             }
@@ -725,7 +804,7 @@ private fun TripMapPhase(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         CircularProgressIndicator(
-                            color = SomewhereColors.GlowAccent,
+                            color = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor,
                             modifier = Modifier.size(16.dp),
                             strokeWidth = 2.dp
                         )
@@ -798,7 +877,7 @@ private fun TripMapPhase(
                         Icon(
                             Icons.Default.Timer,
                             contentDescription = null,
-                            tint = SomewhereColors.GlowAccent,
+                            tint = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -844,7 +923,7 @@ private fun TripMapPhase(
                         Icon(
                             Icons.Default.Place,
                             contentDescription = null,
-                            tint = SomewhereColors.GlowAccent,
+                            tint = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(6.dp))
@@ -895,7 +974,7 @@ private fun TripMapPhase(
                         .padding(horizontal = 16.dp),
                     shape = RoundedCornerShape(16.dp),
                     color = if (uiState.isNavigating) SomewhereColors.Error
-                            else SomewhereColors.GlowAccent
+                            else com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
                 ) {
                     Row(
                         modifier = Modifier
@@ -972,7 +1051,7 @@ private fun NearbyDropItem(
         color = SomewhereColors.Card,
         border = BorderStroke(
             if (isSelected) 1.5.dp else 0.5.dp,
-            if (isSelected) SomewhereColors.GlowAccent else SomewhereColors.CardBorder
+            if (isSelected) com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor else SomewhereColors.CardBorder
         )
     ) {
         Box {
@@ -1019,7 +1098,7 @@ private fun NearbyDropItem(
                     if (drop.category != null) {
                         Text(
                             drop.category,
-                            color = SomewhereColors.GlowAccent,
+                            color = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -1058,7 +1137,7 @@ private fun ApproachingDropAlert(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         color = SomewhereColors.Card,
-        border = BorderStroke(1.dp, SomewhereColors.GlowAccent.copy(alpha = glowAlpha)),
+        border = BorderStroke(1.dp, com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor.copy(alpha = glowAlpha)),
         shadowElevation = 8.dp
     ) {
         Row(
@@ -1080,7 +1159,7 @@ private fun ApproachingDropAlert(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     "APPROACHING DROP",
-                    color = SomewhereColors.GlowAccent,
+                    color = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor,
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 2.sp

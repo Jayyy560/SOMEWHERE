@@ -59,21 +59,25 @@ class DiscoveryViewModel @Inject constructor(
         val summaryText: String? = null,
         val isCurating: Boolean = false,
         val curatedDrop: Pair<String, String>? = null, // (Intro, Text)
-        val selectedCategory: String? = null
+        val selectedCategory: String? = null,
+        val isArCoreTracking: Boolean = false
     )
 
     private val _uiState = MutableStateFlow(DiscoveryUiState())
     val uiState: StateFlow<DiscoveryUiState> = _uiState.asStateFlow()
 
-    // Track which drops we've already "discovered" to trigger ping only once
     private val discoveredIds = mutableSetOf<String>()
 
     // Current device heading (compass)
-    private var currentHeading = 0f
+    var currentHeading = 0f
+        private set
+    private var compassInitialized = false
     private var realtimeStarted = false
+    private var isArCoreTracking = false
 
     private val sensorListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
+            if (isArCoreTracking) return // Skip hardware compass if ARCore is providing heading
             if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR) {
                 val rotationMatrix = FloatArray(9)
                 SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
@@ -90,15 +94,20 @@ class DiscoveryViewModel @Inject constructor(
                 val orientation = FloatArray(3)
                 SensorManager.getOrientation(remappedMatrix, orientation)
                 
-                // Low-pass filter the heading slightly for visual stability
                 val newHeading = Math.toDegrees(orientation[0].toDouble()).toFloat()
                 val normalizedNew = if (newHeading < 0) newHeading + 360f else newHeading
                 
-                // Handle 359 -> 0 wrap around smoothly
-                val diff = LocationUtils.angleDifference(currentHeading, normalizedNew)
-                currentHeading = (currentHeading + diff * 0.15f)
-                while (currentHeading < 0) currentHeading += 360f
-                currentHeading %= 360f
+                if (!compassInitialized) {
+                    // First reading — jump directly to the sensor value (no low-pass from 0°)
+                    currentHeading = normalizedNew
+                    compassInitialized = true
+                } else {
+                    // Handle 359 -> 0 wrap around smoothly with low-pass filter
+                    val diff = LocationUtils.angleDifference(currentHeading, normalizedNew)
+                    currentHeading = (currentHeading + diff * 0.15f)
+                    while (currentHeading < 0) currentHeading += 360f
+                    currentHeading %= 360f
+                }
 
                 updateOverlayPositions()
             }
@@ -128,8 +137,8 @@ class DiscoveryViewModel @Inject constructor(
         }
 
         // Request location updates
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 3000)
-            .setMinUpdateIntervalMillis(1000)
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1500)
+            .setMinUpdateIntervalMillis(500)
             .build()
 
         try {
@@ -347,7 +356,23 @@ class DiscoveryViewModel @Inject constructor(
             .sortedBy { it.distanceMeters }
             .mapIndexed { index, item -> item.copy(isPrimary = index == 0) }
 
-        _uiState.value = state.copy(nearbyDrops = updated, heading = currentHeading)
+        _uiState.value = state.copy(
+            nearbyDrops = updated, 
+            heading = currentHeading
+        )
+    }
+
+    /**
+     * Called by ARScene when ARCore provides a heading (from Geospatial or VIO).
+     * Updates the heading used for compass HUD and drop placement.
+     */
+    fun updateArCoreHeading(heading: Float) {
+        isArCoreTracking = true
+        currentHeading = heading
+        _uiState.update { it.copy(
+            heading = heading,
+            isArCoreTracking = true
+        ) }
     }
 
     override fun onCleared() {

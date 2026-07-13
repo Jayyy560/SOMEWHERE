@@ -74,7 +74,7 @@ fun PingPulse(
                 .size(28.dp)
                 .scale(scaleAnim)
                 .alpha(alphaAnim)
-                .background(SomewhereColors.GlowAccent.copy(alpha = 0.4f), CircleShape)
+                .background(com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor.copy(alpha = 0.4f), CircleShape)
         )
         // Middle ring — brighter warm
         Box(
@@ -82,7 +82,7 @@ fun PingPulse(
                 .size(20.dp)
                 .scale(scaleAnim2)
                 .alpha(alphaAnim2)
-                .background(SomewhereColors.GlowAccent.copy(alpha = 0.6f), CircleShape)
+                .background(com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor.copy(alpha = 0.6f), CircleShape)
         )
         // Inner ring — white core
         Box(

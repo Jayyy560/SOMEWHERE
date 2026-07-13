@@ -45,6 +45,7 @@ fun TutorialOverlay(onComplete: () -> Unit) {
 
     val pagerState = rememberPagerState(pageCount = { pages.size })
     val scope = rememberCoroutineScope()
+    val ambient = com.somewhere.app.ui.theme.LocalAmbientColors.current
 
     Box(
         modifier = Modifier
@@ -106,7 +107,7 @@ fun TutorialOverlay(onComplete: () -> Unit) {
                 horizontalArrangement = Arrangement.Center
             ) {
                 repeat(pages.size) { iteration ->
-                    val color = if (pagerState.currentPage == iteration) SomewhereColors.GlowAccent else SomewhereColors.TextMuted
+                    val color = if (pagerState.currentPage == iteration) ambient.pulseColor else SomewhereColors.TextMuted
                     Box(
                         modifier = Modifier
                             .padding(4.dp)
@@ -131,7 +132,7 @@ fun TutorialOverlay(onComplete: () -> Unit) {
                     .fillMaxWidth()
                     .height(56.dp),
                 shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = SomewhereColors.GlowAccent)
+                colors = ButtonDefaults.buttonColors(containerColor = ambient.pulseColor)
             ) {
                 Text(
                     text = if (pagerState.currentPage < pages.size - 1) "Next" else "Get Started",

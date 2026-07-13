@@ -18,5 +18,10 @@ data class NearbyDrop(
     @SerialName("user_id") val authorId: String? = null,
     @SerialName("expires_at") val expiresAt: String? = null,
     @SerialName("is_anonymous") val isAnonymous: Boolean = false,
-    val category: String? = null
+    val category: String? = null,
+    @SerialName("is_dead_drop") val isDeadDrop: Boolean = false,
+    @SerialName("file_url") val fileUrl: String? = null,
+    @SerialName("file_type") val fileType: String? = null,
+    @SerialName("file_name") val fileName: String? = null,
+    @SerialName("file_size") val fileSize: Long? = null
 )

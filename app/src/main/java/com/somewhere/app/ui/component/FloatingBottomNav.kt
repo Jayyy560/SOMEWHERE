@@ -95,8 +95,8 @@ fun FloatingBottomNav(
                 .background(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            Color(0xFFD500F9).copy(alpha = 0.4f),
-                            Color(0xFF651FFF).copy(alpha = 0.2f),
+                            com.somewhere.app.ui.theme.LocalAmbientColors.current.glowSecondary.copy(alpha = 0.4f),
+                            com.somewhere.app.ui.theme.LocalAmbientColors.current.glowPrimary.copy(alpha = 0.2f),
                             Color.Transparent
                         ),
                         center = androidx.compose.ui.geometry.Offset(40f, 20f),

@@ -26,6 +26,7 @@ fun LegalDialog(
     content: String,
     onDismiss: () -> Unit
 ) {
+    val ambient = com.somewhere.app.ui.theme.LocalAmbientColors.current
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
@@ -95,7 +96,7 @@ fun LegalDialog(
                                             Row(modifier = Modifier.padding(start = 8.dp, bottom = 4.dp)) {
                                                 Text(
                                                     text = line.take(1) + " ",
-                                                    color = SomewhereColors.GlowAccent,
+                                                    color = ambient.pulseColor,
                                                     fontWeight = FontWeight.Bold
                                                 )
                                                 Text(

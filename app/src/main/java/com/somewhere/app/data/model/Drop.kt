@@ -21,7 +21,12 @@ data class Drop(
     val authorId: String? = null,
     val expiresAt: Long? = null,
     val isAnonymous: Boolean = false,
-    val category: String? = null
+    val category: String? = null,
+    val isDeadDrop: Boolean = false,
+    val fileUrl: String? = null,
+    val fileType: String? = null,
+    val fileName: String? = null,
+    val fileSize: Long? = null
 ) {
     val imageUrl: String
         get() = if (imagePath.startsWith("/")) {

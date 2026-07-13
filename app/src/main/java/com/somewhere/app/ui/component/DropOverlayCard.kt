@@ -10,6 +10,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.ViewInAr
+import androidx.compose.material.icons.filled.FolderZip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -49,6 +55,7 @@ fun DropOverlayCard(
     onTap: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val ambient = com.somewhere.app.ui.theme.LocalAmbientColors.current
     val reduceMotion = rememberReduceMotionEnabled()
 
     // Spring entrance animation
@@ -154,13 +161,17 @@ fun DropOverlayCard(
         )
 
         // Main card body
-        Column(
-            modifier = Modifier
-                .graphicsLayer {
-                    this.scaleX = scaleX
-                    this.scaleY = scaleY
-                }
-                .then(
+        Row(
+            modifier = Modifier.graphicsLayer {
+                this.scaleX = scaleX
+                this.scaleY = scaleY
+            },
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                modifier = Modifier
+                    .then(
                     if (item.isUnlocked) {
                         Modifier.clickable(onClick = onTap)
                     } else Modifier
@@ -213,7 +224,7 @@ fun DropOverlayCard(
                         imageVector = icon,
                         contentDescription = item.drop.category,
                         modifier = Modifier.size(12.dp),
-                        tint = SomewhereColors.GlowAccent
+                        tint = ambient.pulseColor
                     )
                     Text(
                         text = LocationUtils.formatDistance(item.distanceMeters),
@@ -234,7 +245,7 @@ fun DropOverlayCard(
                         Text(
                             text = expText,
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                            color = SomewhereColors.GlowAccent
+                            color = ambient.pulseColor
                         )
                     }
                 }
@@ -280,6 +291,48 @@ fun DropOverlayCard(
                     color = SomewhereColors.TextMuted
                 )
             }
-        }
+            } // End of Column
+            
+            // Render Dead Drop icon if attached
+            if (item.drop.isDeadDrop) {
+                // Floating hover animation for the icon
+                val hoverProgress by infiniteTransition.animateFloat(
+                    initialValue = -5f, targetValue = 5f,
+                    animationSpec = infiniteRepeatable(tween(2000, easing = EaseInOutSine), RepeatMode.Reverse),
+                    label = "hover"
+                )
+                
+                Box(
+                    modifier = Modifier
+                        .offset(y = hoverProgress.dp)
+                        .shadow(
+                            elevation = if (item.isUnlocked) 16.dp else 4.dp,
+                            shape = CircleShape,
+                            ambientColor = ambient.pulseColor.copy(alpha = 0.4f),
+                            spotColor = ambient.pulseColor.copy(alpha = 0.6f)
+                        )
+                        .clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.1f))
+                        .background(ambient.pulseColor.copy(alpha = 0.2f))
+                        .border(1.dp, Color.White.copy(alpha = 0.4f), CircleShape)
+                        .padding(12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val icon = when {
+                        item.drop.fileType?.startsWith("image/") == true -> Icons.Default.Image
+                        item.drop.fileType?.startsWith("audio/") == true -> Icons.Default.Audiotrack
+                        item.drop.fileType?.startsWith("video/") == true -> Icons.Default.Movie
+                        item.drop.fileType?.startsWith("model/") == true -> Icons.Default.ViewInAr
+                        else -> Icons.Default.Description
+                    }
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = "Encrypted File",
+                        tint = if (item.isUnlocked) ambient.pulseColor else SomewhereColors.LockTint,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+        } // End of Row
     }
 }

@@ -327,8 +327,8 @@ fun NotificationDropIcon(hasNotification: Boolean, onClick: () -> Unit) {
                             .shadow(
                                 elevation = 8.dp,
                                 shape = shape,
-                                ambientColor = Color(0xFF00E5FF).copy(alpha = 0.2f),
-                                spotColor = Color(0xFFFF00FF).copy(alpha = 0.3f)
+                                ambientColor = com.somewhere.app.ui.theme.LocalAmbientColors.current.shadowAmbient,
+                                spotColor = com.somewhere.app.ui.theme.LocalAmbientColors.current.shadowSpot
                             )
                     } else {
                         Modifier
@@ -342,7 +342,7 @@ fun NotificationDropIcon(hasNotification: Boolean, onClick: () -> Unit) {
                             .background(
                                 brush = Brush.radialGradient(
                                     colors = listOf(
-                                        Color(0xFF80D8FF).copy(alpha = 0.2f), 
+                                        com.somewhere.app.ui.theme.LocalAmbientColors.current.glowPrimary.copy(alpha = 0.2f), 
                                         Color.Transparent
                                     ),
                                     center = androidx.compose.ui.geometry.Offset(10f, 5f),
@@ -352,7 +352,7 @@ fun NotificationDropIcon(hasNotification: Boolean, onClick: () -> Unit) {
                             .background(
                                 brush = Brush.radialGradient(
                                     colors = listOf(
-                                        Color(0xFFEA80FC).copy(alpha = 0.4f), 
+                                        com.somewhere.app.ui.theme.LocalAmbientColors.current.glowSecondary.copy(alpha = 0.4f), 
                                         Color.Transparent
                                     ),
                                     center = androidx.compose.ui.geometry.Offset(50f, 15f),
@@ -379,9 +379,9 @@ fun NotificationDropIcon(hasNotification: Boolean, onClick: () -> Unit) {
                         Brush.linearGradient(
                             colors = listOf(
                                 Color.White,
-                                Color(0xFF80D8FF).copy(alpha = 0.6f),
+                                com.somewhere.app.ui.theme.LocalAmbientColors.current.glowPrimary.copy(alpha = 0.6f),
                                 Color.White.copy(alpha = 0.1f),
-                                Color(0xFFEA80FC).copy(alpha = 0.5f),
+                                com.somewhere.app.ui.theme.LocalAmbientColors.current.glowSecondary.copy(alpha = 0.5f),
                                 Color.White
                             ),
                             start = androidx.compose.ui.geometry.Offset(0f, 0f),

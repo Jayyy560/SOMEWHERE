@@ -160,4 +160,7 @@ dependencies {
     implementation("com.google.maps.android:maps-compose:4.3.3")
     implementation("com.google.android.gms:play-services-maps:18.2.0")
     implementation("com.google.maps.android:android-maps-utils:3.8.0")
+
+    // ARCore Sceneview
+    implementation("io.github.sceneview:arsceneview:2.3.0")
 }
