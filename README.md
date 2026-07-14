@@ -1,6 +1,6 @@
 <div align="center">
 
-# 📍 SOMEWHERE
+# SOMEWHERE
 
 **A Spatial Canvas for the Physical World.**
 
@@ -20,7 +20,7 @@ To experience a Drop, you must physically travel to its exact location in the re
 
 ---
 
-## ✨ The Experience
+## The Experience
 
 ### 🧭 Proximity-Based Discovery
 Drops are tied to absolute GPS coordinates and remain securely locked. To uncover the content inside, you must physically walk into the Drop's tight 5-meter radius. The world is your map.
