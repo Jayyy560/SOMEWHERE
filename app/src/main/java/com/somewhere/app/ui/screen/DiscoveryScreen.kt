@@ -165,6 +165,9 @@ fun DiscoveryScreen(
             val activity = context as? android.app.Activity
 
             LaunchedEffect(Unit) {
+                // ARTIFICIAL DELAY: Added purely to prove to the human eye that the check is running!
+                kotlinx.coroutines.delay(1500)
+                
                 val apk = com.google.ar.core.ArCoreApk.getInstance()
                 // Poll until the availability result is no longer transient (cold start can take >1s)
                 var availability = apk.checkAvailability(context)
