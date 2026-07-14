@@ -39,6 +39,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -163,25 +164,6 @@ fun DiscoveryScreen(
             var arAvailabilityLabel by remember { mutableStateOf("checking…") } // TEMP DEBUG
             val activity = context as? android.app.Activity
 
-            // TEMP DEBUG — remove once the AR path is confirmed
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .statusBarsPadding()
-                    .padding(top = 72.dp, start = 12.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.Black.copy(alpha = 0.6f))
-                    .padding(8.dp)
-            ) {
-                Text(
-                    text = "AR: $arAvailabilityLabel\n" +
-                        "path: ${if (arCoreSupported == true) "ARCORE ✅" else "fallback ❌"}\n" +
-                        com.somewhere.app.util.ARUtils.debugState(),
-                    color = Color.Green,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp)
-                )
-            }
-
             LaunchedEffect(Unit) {
                 val apk = com.google.ar.core.ArCoreApk.getInstance()
                 // Poll until the availability result is no longer transient (cold start can take >1s)
@@ -195,7 +177,15 @@ fun DiscoveryScreen(
                 arAvailabilityLabel = availability.name  // TEMP DEBUG
                 when (availability) {
                     com.google.ar.core.ArCoreApk.Availability.SUPPORTED_INSTALLED -> {
-                        arCoreSupported = true
+                        try {
+                            // Test if the session can actually be created to catch false-positives
+                            val session = com.google.ar.core.Session(context)
+                            session.close()
+                            arCoreSupported = true
+                        } catch (e: Exception) {
+                            arAvailabilityLabel = "AR unsupported: ${e.javaClass.simpleName}"
+                            arCoreSupported = false
+                        }
                     }
                     com.google.ar.core.ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED,
                     com.google.ar.core.ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD -> {
@@ -717,6 +707,25 @@ fun DiscoveryScreen(
                     prefs.edit().putBoolean("has_seen_tutorial", true).apply()
                     showTutorial = false
                 })
+            }
+
+            // TEMP DEBUG — remove once the AR path is confirmed
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(top = 72.dp, start = 12.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = "AR: $arAvailabilityLabel\n" +
+                        "path: ${if (arCoreSupported == true) "ARCORE ✅" else "fallback ❌"}\n" +
+                        com.somewhere.app.util.ARUtils.debugState(),
+                    color = Color.Green,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp)
+                )
             }
         }
     }
