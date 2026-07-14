@@ -236,6 +236,8 @@ class DropRepository(
      * Returns drops within [radiusMeters] of the given coordinates,
      * sorted by distance (closest first), limited to [maxItems].
      */
+    private var cachedRemoteDrops: List<Pair<Drop, Float>> = emptyList()
+
     suspend fun getDropsNear(
         lat: Double,
         lon: Double,
@@ -250,7 +252,11 @@ class DropRepository(
         
         val remote = runCatching {
             fetchRemoteDropsNear(lat, lon, radiusMeters, maxItems)
-        }.getOrNull()?.filter { it.first.timestamp >= wipeTimestamp } ?: emptyList()
+        }.getOrNull()?.also {
+            cachedRemoteDrops = it
+        } ?: cachedRemoteDrops
+
+        val validRemote = remote.filter { it.first.timestamp >= wipeTimestamp }
 
         val local = getLocalDropsNear(lat, lon, radiusMeters, maxItems)
             .filter { it.first.timestamp >= wipeTimestamp }
@@ -258,7 +264,7 @@ class DropRepository(
         val reportedDrops = sharedPrefs.getStringSet("reported_drops", emptySet()) ?: emptySet()
         val blockedUsers = sharedPrefs.getStringSet("blocked_users", emptySet()) ?: emptySet()
 
-        return (remote + local)
+        return (validRemote + local)
             .distinctBy { it.first.id }
             .filter { !reportedDrops.contains(it.first.id) }
             .filter { it.first.authorName == null || !blockedUsers.contains(it.first.authorName) }
