@@ -12,6 +12,7 @@ object LocationUtils {
     const val MAX_VISIBLE = 15          // max overlays shown at once
     const val ACCURACY_WARNING_METERS = 35f
     const val HYSTERESIS_MARGIN = 20f   // extra meters before removing a visible drop
+    const val CO_LOCATED_METERS = 15f   // drops closer than this are fanned out deterministically
 
     /**
      * Haversine distance between two GPS points in meters.

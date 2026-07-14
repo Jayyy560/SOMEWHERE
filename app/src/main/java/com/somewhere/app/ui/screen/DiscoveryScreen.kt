@@ -136,12 +136,18 @@ fun DiscoveryScreen(
             val observer = LifecycleEventObserver { _, event ->
                 when (event) {
                     Lifecycle.Event.ON_START -> viewModel.startTracking()
-                    Lifecycle.Event.ON_STOP -> viewModel.stopTracking()
+                    Lifecycle.Event.ON_STOP -> {
+                        viewModel.stopTracking()
+                        com.somewhere.app.util.ARUtils.resetCalibration()
+                    }
                     else -> Unit
                 }
             }
             lifecycleOwner.lifecycle.addObserver(observer)
-            onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+            onDispose { 
+                lifecycleOwner.lifecycle.removeObserver(observer)
+                com.somewhere.app.util.ARUtils.resetCalibration()
+            }
         }
 
         Box(
@@ -203,25 +209,12 @@ fun DiscoveryScreen(
                                         val drops = state.nearbyDrops.mapIndexed { index, item ->
                                             Pair(item.drop.id, Pair(item.drop.latitude, item.drop.longitude))
                                         }
-                                        val heightOffsets = state.nearbyDrops.mapIndexed { index, item ->
-                                            val h = when (index) {
-                                                0 -> -0.2f
-                                                1 -> 0.4f
-                                                2 -> -0.7f
-                                                3 -> 0.9f
-                                                4 -> -1.2f
-                                                5 -> 1.4f
-                                                else -> (if (index % 2 == 0) -1f else 1f) * (0.3f + index * 0.25f)
-                                            }
-                                            item.drop.id to h
-                                        }.toMap()
-
                                         com.somewhere.app.util.ARUtils.recomputeAllPositions(
+                                            session = session,
                                             cameraPose = cameraPose,
                                             userLat = state.userLat,
                                             userLon = state.userLon,
-                                            drops = drops,
-                                            heightOffsets = heightOffsets
+                                            drops = drops
                                         )
                                     }
 

@@ -322,6 +322,13 @@ class DiscoveryViewModel @Inject constructor(
             }
 
             val merged = discovered
+                .filter {
+                    if (it.drop.id in previousIds) {
+                        it.distanceMeters <= LocationUtils.DISCOVERY_RADIUS + LocationUtils.HYSTERESIS_MARGIN
+                    } else {
+                        it.distanceMeters <= LocationUtils.DISCOVERY_RADIUS
+                    }
+                }
                 .distinctBy { it.drop.id }
                 .sortedBy { it.distanceMeters }
                 .take(LocationUtils.MAX_VISIBLE)

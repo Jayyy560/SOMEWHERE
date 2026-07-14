@@ -8,13 +8,11 @@ import kotlin.math.*
 /**
  * Projects GPS drops onto the screen using ARCore camera matrices.
  *
- * Architecture:
- * 1. CALIBRATE: Determine where geographic North is in ARCore's world (first ~2 sec: fast convergence)
- * 2. PLACE:     Compute each drop's FIXED 3D world position (on GPS update or new drop)
- * 3. PROJECT:   Every frame, project fixed positions through View*Projection → screen pixels
- *
- * Key insight: Once a drop's world position is stored, ARCore's VIO tracking keeps it
- * locked to that spot automatically via the view matrix. No recomputation needed.
+ * Phase 1 Architecture:
+ * 1. CALIBRATE: Determine where geographic North is in ARCore's world
+ * 2. PLACE:     Compute each drop's 3D world position and attach a real ARCore Anchor.
+ *               Co-located drops use deterministic fanning based on their ID.
+ * 3. PROJECT:   Every frame, project the live Anchor translation through View*Projection -> pixels.
  */
 object ARUtils {
 
@@ -23,19 +21,14 @@ object ARUtils {
     private var calibrationFrameCount = 0
     private const val WARMUP_FRAMES = 60  // ~1 second at 60fps before we trust the calibration
 
-    // --- Drop world positions ---
-    private val dropWorldPositions = mutableMapOf<String, FloatArray>()
-    private var lastCalibrationLat: Double = 0.0
-    private var lastCalibrationLon: Double = 0.0
-    private var lastDropIds: Set<String> = emptySet()
+    // --- Drop AR Anchors ---
+    private val dropAnchors = mutableMapOf<String, com.google.ar.core.Anchor>()
 
     fun resetCalibration() {
         cachedNorthAngle = null
         calibrationFrameCount = 0
-        dropWorldPositions.clear()
-        lastCalibrationLat = 0.0
-        lastCalibrationLon = 0.0
-        lastDropIds = emptySet()
+        dropAnchors.values.forEach { it.detach() }
+        dropAnchors.clear()
     }
 
     private fun wrapAngle(rad: Double): Double {
@@ -45,18 +38,8 @@ object ARUtils {
         return r
     }
 
-    /**
-     * Returns true once the calibration has warmed up enough to trust.
-     */
     fun isCalibrated(): Boolean = calibrationFrameCount >= WARMUP_FRAMES
 
-    /**
-     * Calibrate where geographic North is in ARCore's world coordinate system.
-     *
-     * Uses a two-phase convergence strategy:
-     * - First WARMUP_FRAMES frames: 10% blend (fast convergence, reaches accuracy in ~1 sec)
-     * - After warmup: 0.5% blend (very slow drift correction, keeps stability)
-     */
     fun calibrateNorth(cameraPose: Pose, headingDegrees: Float) {
         val localForward = floatArrayOf(0f, 0f, -1f)
         val worldForward = FloatArray(3)
@@ -76,75 +59,84 @@ object ARUtils {
         if (cached == null) {
             cachedNorthAngle = rawNorthAngle
         } else if (calibrationFrameCount < WARMUP_FRAMES) {
-            // Fast convergence during warmup only.
-            // After warmup, we STOP listening to the compass entirely to prevent wobble.
-            // ARCore SLAM will keep the world locked.
             val diff = wrapAngle(rawNorthAngle - cached)
             cachedNorthAngle = cached + diff * 0.10
         }
     }
 
-    /**
-     * Recompute drop world positions when needed:
-     * - GPS moved >2 meters
-     * - New drops appeared in the list
-     * - First time computing
-     *
-     * This is the ONLY place world positions are calculated. They are then
-     * stored and reused for every subsequent frame.
-     */
     fun recomputeAllPositions(
+        session: com.google.ar.core.Session,
         cameraPose: Pose,
         userLat: Double, userLon: Double,
-        drops: List<Pair<String, Pair<Double, Double>>>,
-        heightOffsets: Map<String, Float>
+        drops: List<Pair<String, Pair<Double, Double>>>
     ) {
         val northAngle = cachedNorthAngle ?: return
-        if (!isCalibrated()) return  // Don't place drops until calibration is stable
+        if (!isCalibrated()) return
 
         val currentIds = drops.map { it.first }.toSet()
-        val newDropIds = currentIds.filter { it !in dropWorldPositions }
+        val newDropIds = currentIds.filter { it !in dropAnchors }
         
-        // Only compute positions for brand NEW drops.
-        // Once a drop is placed, its world position is permanently locked to ARCore's SLAM tracking.
-        // We completely ignore future GPS updates for existing drops to prevent jumping.
+        // Clean up anchors for drops no longer in the list
+        val removedIds = dropAnchors.keys.filter { it !in currentIds }
+        removedIds.forEach { 
+            dropAnchors[it]?.detach()
+            dropAnchors.remove(it)
+        }
+
         if (newDropIds.isEmpty()) {
-            // Clean up old drops
-            dropWorldPositions.keys.removeAll { it !in currentIds }
             return
         }
 
-        lastCalibrationLat = userLat
-        lastCalibrationLon = userLon
-        lastDropIds = currentIds
-
         val cameraPos = cameraPose.translation
 
-        // Only compute and place the new drops
         drops.filter { it.first in newDropIds }.forEach { (id, coords) ->
-            val bearing = LocationUtils.bearing(userLat, userLon, coords.first, coords.second)
             val distance = LocationUtils.haversineDistance(userLat, userLon, coords.first, coords.second)
+            
+            val bearingRad: Double
+            val heightOffset: Float
+            
+            // Deterministic placement for co-located drops
+            if (distance <= LocationUtils.CO_LOCATED_METERS) {
+                // Use hash of drop ID to create a stable fan-out pattern
+                val hash = abs(id.hashCode())
+                val angleOffset = (hash % 360).toDouble()
+                bearingRad = Math.toRadians(angleOffset)
+                
+                // Deterministic height offset between -1.5m and +1.5m
+                val heightIndex = (hash % 7) - 3 // -3 to +3
+                heightOffset = heightIndex * 0.4f
+            } else {
+                val bearing = LocationUtils.bearing(userLat, userLon, coords.first, coords.second)
+                bearingRad = Math.toRadians(bearing.toDouble())
+                heightOffset = -0.2f
+            }
 
-            val bearingRad = Math.toRadians(bearing.toDouble())
             val dropAngleInWorld = northAngle + bearingRad
-            val clampedDistance = distance.coerceIn(3f, 40f)
-            val heightOffset = heightOffsets[id] ?: -0.2f
+            val clampedDistance = distance.coerceIn(2f, 25f)
 
             val dropX = cameraPos[0] + (clampedDistance * sin(dropAngleInWorld)).toFloat()
             val dropY = cameraPos[1] + heightOffset
             val dropZ = cameraPos[2] + (-clampedDistance * cos(dropAngleInWorld)).toFloat()
 
-            dropWorldPositions[id] = floatArrayOf(dropX, dropY, dropZ)
+            val pose = Pose.makeTranslation(dropX, dropY, dropZ)
+            
+            // Create anchor to let ARCore track it stably
+            try {
+                val anchor = session.createAnchor(pose)
+                dropAnchors[id] = anchor
+            } catch (e: Exception) {
+                // Ignore tracking failures gracefully
+            }
         }
-
-        // Clean up positions for drops no longer in the list
-        dropWorldPositions.keys.removeAll { it !in currentIds }
     }
 
     fun getWorldPosition(dropId: String): FloatArray? {
-        return dropWorldPositions[dropId]
+        val anchor = dropAnchors[dropId] ?: return null
+        if (anchor.trackingState != com.google.ar.core.TrackingState.TRACKING) return null
+        return anchor.pose.translation
     }
-    fun hasWorldPositions(): Boolean = dropWorldPositions.isNotEmpty()
+    
+    fun hasWorldPositions(): Boolean = dropAnchors.isNotEmpty()
 
     fun projectToScreen(
         worldPos: FloatArray,
