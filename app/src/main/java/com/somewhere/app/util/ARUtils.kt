@@ -22,7 +22,16 @@ object ARUtils {
     private const val WARMUP_FRAMES = 60  // ~1 second at 60fps before we trust the calibration
 
     // --- Drop AR Anchors ---
-    private val dropAnchors = mutableMapOf<String, com.google.ar.core.Anchor>()
+    // Keep up to 50 anchors cached to prevent churn when drops briefly leave and re-enter view
+    private val dropAnchors = object : LinkedHashMap<String, com.google.ar.core.Anchor>(50, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, com.google.ar.core.Anchor>?): Boolean {
+            if (size > 50) {
+                eldest?.value?.detach()
+                return true
+            }
+            return false
+        }
+    }
 
     fun resetCalibration() {
         cachedNorthAngle = null
@@ -76,12 +85,9 @@ object ARUtils {
         val currentIds = drops.map { it.first }.toSet()
         val newDropIds = currentIds.filter { it !in dropAnchors }
         
-        // Clean up anchors for drops no longer in the list
-        val removedIds = dropAnchors.keys.filter { it !in currentIds }
-        removedIds.forEach { 
-            dropAnchors[it]?.detach()
-            dropAnchors.remove(it)
-        }
+        // We purposely do NOT detach anchors that leave currentIds here. 
+        // This allows them to stay in the LRU cache so they don't jump if they re-enter.
+        // They will be evicted naturally by the LRU if they stay out too long.
 
         if (newDropIds.isEmpty()) {
             return
@@ -90,13 +96,13 @@ object ARUtils {
         val cameraPos = cameraPose.translation
 
         drops.filter { it.first in newDropIds }.forEach { (id, coords) ->
-            val distance = LocationUtils.haversineDistance(userLat, userLon, coords.first, coords.second)
+            var targetDistance = LocationUtils.haversineDistance(userLat, userLon, coords.first, coords.second)
             
             val bearingRad: Double
             val heightOffset: Float
             
             // Deterministic placement for co-located drops
-            if (distance <= LocationUtils.CO_LOCATED_METERS) {
+            if (targetDistance <= LocationUtils.CO_LOCATED_METERS) {
                 // Use hash of drop ID to create a stable fan-out pattern
                 val hash = abs(id.hashCode())
                 val angleOffset = (hash % 360).toDouble()
@@ -105,6 +111,9 @@ object ARUtils {
                 // Deterministic height offset between -1.5m and +1.5m
                 val heightIndex = (hash % 7) - 3 // -3 to +3
                 heightOffset = heightIndex * 0.4f
+                
+                // Jitter radius so they don't form a perfectly flat ring
+                targetDistance = 2f + (hash % 4)
             } else {
                 val bearing = LocationUtils.bearing(userLat, userLon, coords.first, coords.second)
                 bearingRad = Math.toRadians(bearing.toDouble())
@@ -112,7 +121,7 @@ object ARUtils {
             }
 
             val dropAngleInWorld = northAngle + bearingRad
-            val clampedDistance = distance.coerceIn(2f, 25f)
+            val clampedDistance = targetDistance.coerceIn(2f, 25f)
 
             val dropX = cameraPos[0] + (clampedDistance * sin(dropAngleInWorld)).toFloat()
             val dropY = cameraPos[1] + heightOffset
