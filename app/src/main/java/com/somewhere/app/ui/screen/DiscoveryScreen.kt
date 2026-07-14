@@ -161,13 +161,9 @@ fun DiscoveryScreen(
 
             // Fullscreen camera preview
             var arCoreSupported by remember { mutableStateOf<Boolean?>(null) }
-            var arAvailabilityLabel by remember { mutableStateOf("checking…") } // TEMP DEBUG
             val activity = context as? android.app.Activity
 
             LaunchedEffect(Unit) {
-                // ARTIFICIAL DELAY: Added purely to prove to the human eye that the check is running!
-                kotlinx.coroutines.delay(1500)
-                
                 val apk = com.google.ar.core.ArCoreApk.getInstance()
                 // Poll until the availability result is no longer transient (cold start can take >1s)
                 var availability = apk.checkAvailability(context)
@@ -177,7 +173,6 @@ fun DiscoveryScreen(
                     availability = apk.checkAvailability(context)
                     tries++
                 }
-                arAvailabilityLabel = availability.name  // TEMP DEBUG
                 when (availability) {
                     com.google.ar.core.ArCoreApk.Availability.SUPPORTED_INSTALLED -> {
                         try {
@@ -186,7 +181,6 @@ fun DiscoveryScreen(
                             session.close()
                             arCoreSupported = true
                         } catch (e: Exception) {
-                            arAvailabilityLabel = "AR unsupported: ${e.javaClass.simpleName}"
                             arCoreSupported = false
                         }
                     }
@@ -199,10 +193,9 @@ fun DiscoveryScreen(
                                     com.google.ar.core.ArCoreApk.InstallStatus.INSTALLED ->
                                         arCoreSupported = true
                                     com.google.ar.core.ArCoreApk.InstallStatus.INSTALL_REQUESTED ->
-                                        arAvailabilityLabel = "INSTALL_REQUESTED — re-enter screen after install"
+                                        Unit // wait for resume
                                 }
                             } catch (e: Exception) {
-                                arAvailabilityLabel = "install failed: ${e.javaClass.simpleName}"
                                 arCoreSupported = false
                             }
                         } else {
@@ -712,24 +705,6 @@ fun DiscoveryScreen(
                 })
             }
 
-            // TEMP DEBUG — remove once the AR path is confirmed
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .statusBarsPadding()
-                    .padding(top = 72.dp, start = 12.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color.Black.copy(alpha = 0.6f))
-                    .padding(8.dp)
-            ) {
-                Text(
-                    text = "AR: $arAvailabilityLabel\n" +
-                        "path: ${if (arCoreSupported == true) "ARCORE ✅" else "fallback ❌"}\n" +
-                        com.somewhere.app.util.ARUtils.debugState(),
-                    color = Color.Green,
-                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp)
-                )
-            }
         }
     }
 }
