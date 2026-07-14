@@ -160,13 +160,66 @@ fun DiscoveryScreen(
 
             // Fullscreen camera preview
             var arCoreSupported by remember { mutableStateOf<Boolean?>(null) }
+            var arAvailabilityLabel by remember { mutableStateOf("checking…") } // TEMP DEBUG
+            val activity = context as? android.app.Activity
+
+            // TEMP DEBUG — remove once the AR path is confirmed
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .statusBarsPadding()
+                    .padding(top = 72.dp, start = 12.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Color.Black.copy(alpha = 0.6f))
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = "AR: $arAvailabilityLabel\n" +
+                        "path: ${if (arCoreSupported == true) "ARCORE ✅" else "fallback ❌"}\n" +
+                        com.somewhere.app.util.ARUtils.debugState(),
+                    color = Color.Green,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp)
+                )
+            }
+
             LaunchedEffect(Unit) {
-                val availability = com.google.ar.core.ArCoreApk.getInstance().checkAvailability(context)
-                if (availability.isTransient) {
+                val apk = com.google.ar.core.ArCoreApk.getInstance()
+                // Poll until the availability result is no longer transient (cold start can take >1s)
+                var availability = apk.checkAvailability(context)
+                var tries = 0
+                while (availability.isTransient && tries < 15) {
                     kotlinx.coroutines.delay(200)
-                    arCoreSupported = com.google.ar.core.ArCoreApk.getInstance().checkAvailability(context) == com.google.ar.core.ArCoreApk.Availability.SUPPORTED_INSTALLED
-                } else {
-                    arCoreSupported = availability == com.google.ar.core.ArCoreApk.Availability.SUPPORTED_INSTALLED
+                    availability = apk.checkAvailability(context)
+                    tries++
+                }
+                arAvailabilityLabel = availability.name  // TEMP DEBUG
+                when (availability) {
+                    com.google.ar.core.ArCoreApk.Availability.SUPPORTED_INSTALLED -> {
+                        arCoreSupported = true
+                    }
+                    com.google.ar.core.ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED,
+                    com.google.ar.core.ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD -> {
+                        // Device supports AR but the ARCore app is missing/old — prompt to install.
+                        if (activity != null) {
+                            try {
+                                when (apk.requestInstall(activity, true)) {
+                                    com.google.ar.core.ArCoreApk.InstallStatus.INSTALLED ->
+                                        arCoreSupported = true
+                                    com.google.ar.core.ArCoreApk.InstallStatus.INSTALL_REQUESTED ->
+                                        arAvailabilityLabel = "INSTALL_REQUESTED — re-enter screen after install"
+                                }
+                            } catch (e: Exception) {
+                                arAvailabilityLabel = "install failed: ${e.javaClass.simpleName}"
+                                arCoreSupported = false
+                            }
+                        } else {
+                            arCoreSupported = false
+                        }
+                    }
+                    else -> {
+                        // UNSUPPORTED_DEVICE_NOT_CAPABLE / UNKNOWN_ERROR / UNKNOWN_CHECKING / etc.
+                        arCoreSupported = false
+                    }
                 }
             }
 

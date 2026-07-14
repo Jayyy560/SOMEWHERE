@@ -148,6 +148,9 @@ object ARUtils {
     
     fun hasWorldPositions(): Boolean = dropAnchors.isNotEmpty()
 
+    fun debugState(): String =
+        "anchors=${dropAnchors.size} calibrated=${isCalibrated()} frames=$calibrationFrameCount"
+
     fun projectToScreen(
         worldPos: FloatArray,
         viewMatrix: FloatArray,
