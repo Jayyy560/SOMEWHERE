@@ -96,36 +96,40 @@ object ARUtils {
         val cameraPos = cameraPose.translation
 
         drops.filter { it.first in newDropIds }.forEach { (id, coords) ->
-            var targetDistance = LocationUtils.haversineDistance(userLat, userLon, coords.first, coords.second)
+            val distance = LocationUtils.haversineDistance(userLat, userLon, coords.first, coords.second)
             
             val bearingRad: Double
             val heightOffset: Float
+            val placementDistance: Float
             
             // Deterministic placement for co-located drops
-            if (targetDistance <= LocationUtils.CO_LOCATED_METERS) {
+            if (distance <= LocationUtils.CO_LOCATED_METERS) {
                 // Use hash of drop ID to create a stable fan-out pattern
                 val hash = abs(id.hashCode())
                 val angleOffset = (hash % 360).toDouble()
                 bearingRad = Math.toRadians(angleOffset)
-                
-                // Deterministic height offset between -1.5m and +1.5m
+
+                // Deterministic height offset between -0.75m and +0.75m
+                // (kept small: at 2m away, ±1.2m looked like ceiling/floor)
                 val heightIndex = (hash % 7) - 3 // -3 to +3
-                heightOffset = heightIndex * 0.4f
-                
-                // Jitter radius so they don't form a perfectly flat ring
-                targetDistance = 2f + (hash % 4)
+                heightOffset = heightIndex * 0.25f
+
+                // CRITICAL: anchor co-located drops INSIDE the room (1.5–3.5m),
+                // not at their noisy GPS distance — parallax becomes visible
+                // and cards stop being anchored beyond the walls.
+                placementDistance = 1.5f + (((hash / 360) % 100) / 100f) * 2f
             } else {
                 val bearing = LocationUtils.bearing(userLat, userLon, coords.first, coords.second)
                 bearingRad = Math.toRadians(bearing.toDouble())
                 heightOffset = -0.2f
+                placementDistance = distance.coerceIn(2f, 25f)
             }
 
             val dropAngleInWorld = northAngle + bearingRad
-            val clampedDistance = targetDistance.coerceIn(2f, 25f)
 
-            val dropX = cameraPos[0] + (clampedDistance * sin(dropAngleInWorld)).toFloat()
+            val dropX = cameraPos[0] + (placementDistance * sin(dropAngleInWorld)).toFloat()
             val dropY = cameraPos[1] + heightOffset
-            val dropZ = cameraPos[2] + (-clampedDistance * cos(dropAngleInWorld)).toFloat()
+            val dropZ = cameraPos[2] + (-placementDistance * cos(dropAngleInWorld)).toFloat()
 
             val pose = Pose.makeTranslation(dropX, dropY, dropZ)
             
