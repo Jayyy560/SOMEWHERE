@@ -15,6 +15,7 @@ import com.google.android.gms.location.GeofenceStatusCodes
 import com.google.android.gms.location.GeofencingEvent
 import com.somewhere.app.MainActivity
 import com.somewhere.app.R
+import kotlinx.coroutines.launch
 
 class GeofenceBroadcastReceiver : BroadcastReceiver() {
 
@@ -34,9 +35,23 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
         if (geofenceTransition == Geofence.GEOFENCE_TRANSITION_ENTER) {
             val triggeringGeofences = geofencingEvent.triggeringGeofences ?: return
 
-            // Fire notification for each drop entered
-            for (geofence in triggeringGeofences) {
-                sendNotification(context, geofence.requestId)
+            val pendingResult = goAsync()
+            kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val db = com.somewhere.app.data.local.AppDatabase.getInstance(context)
+                    val dropDao = db.dropDao()
+
+                    // Fire notification for each drop entered
+                    for (geofence in triggeringGeofences) {
+                        val dropId = geofence.requestId
+                        if (dropDao.getDropById(dropId) != null) {
+                            continue // Ignore, they already got this one!
+                        }
+                        sendNotification(context, dropId)
+                    }
+                } finally {
+                    pendingResult.finish()
+                }
             }
         }
     }

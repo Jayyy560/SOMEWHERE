@@ -87,7 +87,6 @@ fun TripScreen(
     val locationPermission = rememberPermissionState(Manifest.permission.ACCESS_FINE_LOCATION)
 
     // Get current location
-    var currentLocation by remember { mutableStateOf<LatLng?>(null) }
     var previewDrop by remember { mutableStateOf<NearbyDrop?>(null) }
 
     // Request permissions on launch
@@ -97,38 +96,13 @@ fun TripScreen(
         }
     }
 
-        // Live location tracking
-        DisposableEffect(locationPermission.status.isGranted) {
-            val client = LocationServices.getFusedLocationProviderClient(context)
-            val callback = object : LocationCallback() {
-                override fun onLocationResult(result: LocationResult) {
-                    result.lastLocation?.let { loc ->
-                        val latLng = LatLng(loc.latitude, loc.longitude)
-                        currentLocation = latLng
-                        tripViewModel.updateUserLocation(latLng)
-                    }
-                }
-            }
-
-            if (locationPermission.status.isGranted) {
-                @SuppressLint("MissingPermission")
-                val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 3000).build()
-                client.requestLocationUpdates(request, callback, android.os.Looper.getMainLooper())
-                
-                @SuppressLint("MissingPermission")
-                client.lastLocation.addOnSuccessListener { loc ->
-                    if (loc != null && currentLocation == null) {
-                        val latLng = LatLng(loc.latitude, loc.longitude)
-                        currentLocation = latLng
-                        tripViewModel.updateUserLocation(latLng)
-                    }
-                }
-            }
-
-            onDispose {
-                client.removeLocationUpdates(callback)
-            }
+    LaunchedEffect(locationPermission.status.isGranted) {
+        if (locationPermission.status.isGranted) {
+            tripViewModel.startLocationTracking()
         }
+    }
+
+    val currentLocation = uiState.currentUserLocation
 
     Box(
         modifier = Modifier

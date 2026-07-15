@@ -63,6 +63,9 @@ class TripViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleUseCurrentLocation() = TripManager.toggleUseCurrentLocation()
     fun clearError() = TripManager.clearError()
     fun resetTrip() = TripManager.resetTrip()
+    
+    fun startLocationTracking() = TripManager.startLocationTracking(getApplication())
+    fun stopLocationTracking() = TripManager.stopLocationTracking()
 
     fun routeToDrop(drop: NearbyDrop, currentLat: Double? = null, currentLng: Double? = null) {
         TripManager.routeToDrop(drop, currentLat, currentLng)

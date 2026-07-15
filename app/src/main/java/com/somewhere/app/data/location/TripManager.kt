@@ -23,6 +23,9 @@ object TripManager {
     private var repository: TripRepository? = null
     private var geofenceManager: GeofenceManager? = null
     private var searchJob: kotlinx.coroutines.Job? = null
+    private var routeSearchJob: kotlinx.coroutines.Job? = null
+    private var locationClient: com.google.android.gms.location.FusedLocationProviderClient? = null
+    private var locationCallback: com.google.android.gms.location.LocationCallback? = null
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -34,6 +37,41 @@ object TripManager {
             repository = TripRepository(context.applicationContext)
             geofenceManager = GeofenceManager(context.applicationContext)
         }
+    }
+
+    @android.annotation.SuppressLint("MissingPermission")
+    fun startLocationTracking(context: Context) {
+        if (locationClient == null) {
+            locationClient = com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(context.applicationContext)
+        }
+        
+        if (locationCallback == null) {
+            locationCallback = object : com.google.android.gms.location.LocationCallback() {
+                override fun onLocationResult(result: com.google.android.gms.location.LocationResult) {
+                    result.lastLocation?.let { loc ->
+                        val latLng = LatLng(loc.latitude, loc.longitude)
+                        updateUserLocation(latLng)
+                    }
+                }
+            }
+            val request = com.google.android.gms.location.LocationRequest.Builder(
+                com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY, 3000
+            ).build()
+            locationClient?.requestLocationUpdates(request, locationCallback!!, android.os.Looper.getMainLooper())
+            
+            locationClient?.lastLocation?.addOnSuccessListener { loc ->
+                if (loc != null && _uiState.value.currentUserLocation == null) {
+                    updateUserLocation(LatLng(loc.latitude, loc.longitude))
+                }
+            }
+        }
+    }
+
+    fun stopLocationTracking() {
+        locationCallback?.let {
+            locationClient?.removeLocationUpdates(it)
+        }
+        locationCallback = null
     }
 
     fun updatePrompt(text: String, cursorPosition: Int) {
@@ -131,7 +169,8 @@ object TripManager {
         val thenParts = prompt.split(Regex("(?i)\\s+then\\s+(?:take me to\\s+|to\\s+)?"), limit = 2)
         if (thenParts.size == 2 && overridePrompt == null) {
             _uiState.value = state.copy(isLoading = true, error = null)
-            scope.launch {
+            routeSearchJob?.cancel()
+            routeSearchJob = scope.launch {
                 try {
                     val repo = repository ?: return@launch
                     val step1 = thenParts[0]
@@ -159,8 +198,12 @@ object TripManager {
                     val exclusions = excRegex.findAll(step1Query).map { it.groupValues[1] }.toList()
                     excRegex.findAll(step1Query).forEach { step1Query = step1Query.replace(it.value, "") }
 
-                    val cLat = currentLat ?: return@launch
-                    val cLng = currentLng ?: return@launch
+                    if (currentLat == null || currentLng == null) {
+                        _uiState.value = state.copy(error = "Waiting for GPS signal... please wait a moment.", isLoading = false)
+                        return@launch
+                    }
+                    val cLat = currentLat
+                    val cLng = currentLng
                     
                     val step1Drops = repo.getDropsAroundLocation(cLat, cLng, step1Radius)
                     val step1Filtered = repo.filterDropsByQuery(step1Drops, step1Query, exclusions)
@@ -293,15 +336,20 @@ object TripManager {
         }
 
         _uiState.value = state.copy(isLoading = true, error = null)
-
-        scope.launch {
+        
+        routeSearchJob?.cancel()
+        routeSearchJob = scope.launch {
             try {
                 val startTime = System.currentTimeMillis()
                 val repo = repository ?: return@launch
 
                 if (isSurpriseMe) {
-                    val centerLat = currentLat ?: return@launch
-                    val centerLng = currentLng ?: return@launch
+                    if (currentLat == null || currentLng == null) {
+                        _uiState.value = state.copy(error = "Waiting for GPS signal... please wait a moment.", isLoading = false)
+                        return@launch
+                    }
+                    val centerLat = currentLat
+                    val centerLng = currentLng
                     val allLocalDrops = repo.getDropsAroundLocation(centerLat, centerLng, 30000.0) // 30km radius
                     if (allLocalDrops.isNotEmpty()) {
                         val chosenDrop = allLocalDrops.random()
@@ -316,8 +364,12 @@ object TripManager {
                     // 1. Wayfinder Philosophy: ALWAYS prioritize routing to a Drop over a generic Google Maps location.
                     // If the destination is a text phrase (not coordinates), we search the Drops database first.
                     if (!destination.matches(Regex("^[-\\d.]+,[-\\d.]+$"))) {
-                        val cLat = currentLat ?: return@launch
-                        val cLng = currentLng ?: return@launch
+                        if (currentLat == null || currentLng == null) {
+                            _uiState.value = state.copy(error = "Waiting for GPS signal... please wait a moment.", isLoading = false)
+                            return@launch
+                        }
+                        val cLat = currentLat
+                        val cLng = currentLng
                         // Massive 50km search to find a drop matching the destination intent
                         val possibleDrops = repo.getDropsAroundLocation(cLat, cLng, 50000.0)
                         val dropMatches = repo.filterDropsByQuery(possibleDrops, destination)
@@ -367,8 +419,14 @@ object TripManager {
                 } else if (radiusMeters != null) {
                     // Radius Search Logic (No Route)
                     val centerParts = origin.split(",")
-                    val centerLat = centerParts.getOrNull(0)?.toDoubleOrNull() ?: currentLat ?: return@launch
-                    val centerLng = centerParts.getOrNull(1)?.toDoubleOrNull() ?: currentLng ?: return@launch
+                    val parsedLat = centerParts.getOrNull(0)?.toDoubleOrNull() ?: currentLat
+                    val parsedLng = centerParts.getOrNull(1)?.toDoubleOrNull() ?: currentLng
+                    if (parsedLat == null || parsedLng == null) {
+                        _uiState.value = state.copy(error = "Waiting for GPS signal... please wait a moment.", isLoading = false)
+                        return@launch
+                    }
+                    val centerLat = parsedLat
+                    val centerLng = parsedLng
 
                     val dropsInRadius = repo.getDropsAroundLocation(centerLat, centerLng, radiusMeters)
                     val filtered = if (query.isNotBlank() || exclusions.isNotEmpty()) repo.filterDropsByQuery(dropsInRadius, query, exclusions) else dropsInRadius
