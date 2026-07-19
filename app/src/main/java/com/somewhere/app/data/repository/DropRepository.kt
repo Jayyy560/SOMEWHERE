@@ -75,7 +75,8 @@ class DropRepository(
         fileUri: String? = null,
         fileType: String? = null,
         fileName: String? = null,
-        fileSize: Long? = null
+        fileSize: Long? = null,
+        isHitchhiker: Boolean = false
     ): Drop {
         require(text.isNotBlank()) { "Drop text must not be blank" }
 
@@ -111,7 +112,8 @@ class DropRepository(
                 fileUrl = uploadedFileUrl,
                 fileType = fileType,
                 fileName = fileName,
-                fileSize = fileSize
+                fileSize = fileSize,
+                isHitchhiker = isHitchhiker
             )
         )
 
@@ -133,7 +135,8 @@ class DropRepository(
             fileUrl = uploadedFileUrl,
             fileType = fileType,
             fileName = fileName,
-            fileSize = fileSize
+            fileSize = fileSize,
+            isHitchhiker = isHitchhiker
         )
         dao.insert(drop)
         return drop
@@ -182,7 +185,14 @@ class DropRepository(
                     authorId = remote.authorId,
                     expiresAt = remote.expiresAt?.let { Instant.parse(it).toEpochMilli() },
                     isAnonymous = remote.isAnonymous,
-                    category = remote.category
+                    category = remote.category,
+                    isDeadDrop = remote.isDeadDrop,
+                    fileUrl = remote.fileUrl,
+                    fileType = remote.fileType,
+                    fileName = remote.fileName,
+                    fileSize = remote.fileSize,
+                    isHitchhiker = remote.isHitchhiker,
+                    carriedByUserId = remote.carriedByUserId
                 )
             }
 
@@ -500,7 +510,9 @@ class DropRepository(
                     fileUrl = remote.fileUrl,
                     fileType = remote.fileType,
                     fileName = remote.fileName,
-                    fileSize = remote.fileSize
+                    fileSize = remote.fileSize,
+                    isHitchhiker = remote.isHitchhiker,
+                    carriedByUserId = remote.carriedByUserId
                 )
 
                 val dist = remote.distanceMeters?.toFloat()
@@ -745,7 +757,14 @@ class DropRepository(
                     authorId = remote.authorId,
                     expiresAt = remote.expiresAt?.let { parseTimestamp(it) },
                     isAnonymous = remote.isAnonymous,
-                    category = remote.category
+                    category = remote.category,
+                    isDeadDrop = remote.isDeadDrop,
+                    fileUrl = remote.fileUrl,
+                    fileType = remote.fileType,
+                    fileName = remote.fileName,
+                    fileSize = remote.fileSize,
+                    isHitchhiker = remote.isHitchhiker,
+                    carriedByUserId = remote.carriedByUserId
                 )
             }.sortedByDescending { it.timestamp }
         }.onFailure {
@@ -774,5 +793,133 @@ class DropRepository(
             println("!!! ERROR updating drop text: ${it.message}")
             it.printStackTrace()
         }
+    }
+    suspend fun setHitchhiker(dropId: String, isHitchhiker: Boolean): Boolean {
+        return runCatching {
+            SupabaseManager.client.postgrest["drops"]
+                .update({
+                    set("is_hitchhiker", isHitchhiker)
+                }) {
+                    filter { eq("id", dropId) }
+                }
+            val localDrop = dao.getDropById(dropId)
+            if (localDrop != null) {
+                dao.insert(localDrop.copy(isHitchhiker = isHitchhiker))
+            }
+            true
+        }.getOrElse { false }
+    }
+
+    fun getCarriedDrops(): Flow<List<Drop>> {
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return flowOf(emptyList())
+        return dao.getCarriedDrops(currentUser.id)
+    }
+
+    suspend fun syncCarriedDrops() {
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return
+        runCatching {
+            val remoteDrops = SupabaseManager.client.postgrest["drops"]
+                .select { filter { eq("carried_by_user_id", currentUser.id) } }
+                .decodeList<NearbyDrop>()
+
+            remoteDrops.forEach { remote ->
+                dao.insert(
+                    Drop(
+                        id = remote.id,
+                        text = remote.text,
+                        imagePath = remote.imageUrl,
+                        audioPath = remote.audioUrl,
+                        latitude = remote.latitude,
+                        longitude = remote.longitude,
+                        timestamp = remote.createdAt?.let { parseTimestamp(it) } ?: System.currentTimeMillis(),
+                        authorName = remote.authorName,
+                        authorAvatarUrl = remote.authorAvatarUrl,
+                        authorId = remote.authorId,
+                        expiresAt = remote.expiresAt?.let { parseTimestamp(it) },
+                        isAnonymous = remote.isAnonymous,
+                        category = remote.category,
+                        isDeadDrop = remote.isDeadDrop,
+                        fileUrl = remote.fileUrl,
+                        fileType = remote.fileType,
+                        fileName = remote.fileName,
+                        fileSize = remote.fileSize,
+                        isHitchhiker = remote.isHitchhiker,
+                        carriedByUserId = remote.carriedByUserId
+                    )
+                )
+            }
+        }.onFailure { it.printStackTrace() }
+    }
+
+    suspend fun pickUpHitchhiker(dropId: String): Boolean {
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return false
+        return runCatching {
+            SupabaseManager.client.postgrest["drops"]
+                .update({
+                    set("carried_by_user_id", currentUser.id)
+                }) {
+                    filter { eq("id", dropId) }
+                }
+            val localDrop = dao.getDropById(dropId)
+            if (localDrop != null) {
+                dao.insert(localDrop.copy(carriedByUserId = currentUser.id))
+            }
+            true
+        }.getOrElse { false }
+    }
+
+    suspend fun passOnHitchhiker(dropId: String, lat: Double, lon: Double, photoUri: Uri?, context: android.content.Context): Boolean {
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return false
+        return runCatching {
+            var uploadedUrl: String? = null
+            if (photoUri != null) {
+                // Upload photo for the stop
+                val inputStream = context.contentResolver.openInputStream(photoUri)
+                if (inputStream != null) {
+                    val bytes = inputStream.readBytes()
+                    inputStream.close()
+                    val fileName = "hitchhiker_${System.currentTimeMillis()}.jpg"
+                    SupabaseManager.client.storage.from("drops").upload(fileName, bytes, upsert = false)
+                    uploadedUrl = SupabaseManager.client.storage.from("drops").publicUrl(fileName)
+                }
+            }
+
+            // Insert into drop_journey_stops
+            val stop = com.somewhere.app.data.remote.DropJourneyStopInsert(
+                dropId = dropId,
+                userId = currentUser.id,
+                latitude = lat,
+                longitude = lon,
+                imageUrl = uploadedUrl
+            )
+            SupabaseManager.client.postgrest["drop_journey_stops"].insert(stop)
+
+            // Update drop
+            SupabaseManager.client.postgrest["drops"]
+                .update({
+                    set("latitude", lat)
+                    set("longitude", lon)
+                    set("carried_by_user_id", null as String?) 
+                }) {
+                    filter { eq("id", dropId) }
+                }
+
+            val localDrop = dao.getDropById(dropId)
+            if (localDrop != null) {
+                dao.insert(localDrop.copy(latitude = lat, longitude = lon, carriedByUserId = null))
+            }
+            true
+        }.onFailure { it.printStackTrace() }.getOrElse { false }
+    }
+
+    suspend fun getHitchhikerJourney(dropId: String): List<com.somewhere.app.data.remote.DropJourneyStop> {
+        return runCatching {
+            SupabaseManager.client.postgrest["drop_journey_stops"]
+                .select { 
+                    filter { eq("drop_id", dropId) }
+                }
+                .decodeList<com.somewhere.app.data.remote.DropJourneyStop>()
+                .sortedBy { parseTimestamp(it.createdAt) }
+        }.getOrElse { emptyList() }
     }
 }

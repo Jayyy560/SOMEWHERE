@@ -22,6 +22,9 @@ interface DropDao {
     @Query("SELECT * FROM drops WHERE id = :id LIMIT 1")
     suspend fun getDropById(id: String): Drop?
 
+    @Query("SELECT * FROM drops WHERE carriedByUserId = :userId")
+    fun getCarriedDrops(userId: String): Flow<List<Drop>>
+
     @Query("DELETE FROM drops")
     suspend fun deleteAll()
 

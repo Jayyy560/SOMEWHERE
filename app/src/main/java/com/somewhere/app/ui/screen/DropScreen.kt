@@ -15,6 +15,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -26,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.Pause
@@ -37,6 +40,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
@@ -65,6 +69,7 @@ import coil.request.ImageRequest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -181,9 +186,13 @@ fun DropScreen(
     // Navigate back after successful save
     LaunchedEffect(uiState.isSaved) {
         if (uiState.isSaved) {
-            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-            Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
-            onComplete()
+            if (!uiState.isHitchhiker) {
+                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
+                onComplete()
+            } else {
+                // The animation will play, and it will handle calling onComplete()
+            }
         }
     }
 
@@ -224,6 +233,7 @@ fun DropScreen(
 
     // Entrance animation
     var visible by remember { mutableStateOf(false) }
+    var isUIHidden by remember { mutableStateOf(false) }
     val contentAlpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
         animationSpec = tween(if (reduceMotion) 0 else 600),
@@ -296,6 +306,14 @@ fun DropScreen(
                 .alpha(contentAlpha)
                 .pointerInput(Unit) {
                     detectTapGestures(
+                        onPress = { offset ->
+                            isUIHidden = true
+                            try {
+                                tryAwaitRelease()
+                            } finally {
+                                isUIHidden = false
+                            }
+                        },
                         onTap = { offset ->
                             focusPoint = offset
                             focusTrigger++
@@ -365,11 +383,24 @@ fun DropScreen(
             }
 
             // Bottom panel
-            val bottomPadding = if (uiState.capturedImageUri == null) 124.dp else 24.dp
-            Column(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
+            androidx.compose.animation.AnimatedVisibility(
+                visible = !isUIHidden,
+                enter = androidx.compose.animation.fadeIn(),
+                exit = androidx.compose.animation.fadeOut(),
+                modifier = Modifier.align(Alignment.BottomCenter)
+            ) {
+                val bottomPadding = if (uiState.capturedImageUri == null) 124.dp else 24.dp
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Main)
+                                    event.changes.forEach { it.consume() }
+                                }
+                            }
+                        }
                     .background(SomewhereColors.Background.copy(alpha = 0.92f))
                     // Add extra 100dp bottom padding to sit above the FloatingBottomNav ONLY when nav is visible
                     .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = bottomPadding)
@@ -571,7 +602,7 @@ fun DropScreen(
                             Switch(
                                 checked = uiState.isAnonymous,
                                 onCheckedChange = { viewModel.setAnonymous(it) },
-                                modifier = Modifier.scale(0.8f).padding(start = 4.dp),
+                                modifier = Modifier.scale(0.7f).padding(start = 4.dp),
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = SomewhereColors.Background,
                                     checkedTrackColor = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
@@ -735,8 +766,50 @@ fun DropScreen(
                         }
                     }
 
+                    HitchhikerToggleBox(
+                        isHitchhiker = uiState.isHitchhiker,
+                        onToggle = { viewModel.setHitchhiker(it) }
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Release as a Hitchhiker",
+                                    style = MaterialTheme.typography.bodyLarge.copy(
+                                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                        color = Color(0xFFE0B0FF)
+                                    )
+                                )
+                                Text(
+                                    text = "Anyone can carry this Drop to new locations. Its journey will be recorded forever.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = SomewhereColors.TextSecondary
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "This Drop could travel for years and be carried by hundreds of people.",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                                    ),
+                                    color = Color(0xAAFFFFFF)
+                                )
+                            }
+                            androidx.compose.material3.Switch(
+                                checked = uiState.isHitchhiker,
+                                onCheckedChange = { viewModel.setHitchhiker(it) },
+                                modifier = Modifier.scale(0.7f),
+                                colors = androidx.compose.material3.SwitchDefaults.colors(
+                                    checkedThumbColor = Color.White,
+                                    checkedTrackColor = Color(0xFF6A0DAD)
+                                )
+                            )
+                        }
+                    }
+
                     SomewhereButton(
-                        text = if (uiState.isSaving) "Saving..." else "Mark this place",
+                        text = if (uiState.isSaving) "Saving..." else if (uiState.isHitchhiker) "BEGIN ITS JOURNEY" else "MARK THIS PLACE",
                         enabled = uiState.text.isNotBlank() && !uiState.isSaving,
                         modifier = Modifier.fillMaxWidth(),
                         onClick = {
@@ -758,7 +831,15 @@ fun DropScreen(
                             }
                         }
                     )
-                }
+            }
+        }
+
+
+
+            }
+            
+            if (uiState.isSaved && uiState.isHitchhiker) {
+                ReleaseAnimationOverlay(onComplete = onComplete)
             }
 
             SnackbarHost(
@@ -1003,7 +1084,158 @@ private fun getCurrentLocation(
             .addOnFailureListener {
                 onLocation(LocationResult(0.0, 0.0, Float.MAX_VALUE, true))
             }
-    } catch (_: SecurityException) {
+} catch (_: SecurityException) {
         onLocation(LocationResult(0.0, 0.0, Float.MAX_VALUE, true))
     }
+}
+
+@Composable
+fun HitchhikerToggleBox(
+    isHitchhiker: Boolean,
+    onToggle: (Boolean) -> Unit,
+    content: @Composable () -> Unit
+) {
+    val infiniteTransition = rememberInfiniteTransition()
+    val time by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(tween(10000, easing = LinearEasing))
+    )
+    val colorPhase by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(2000, easing = LinearEasing), repeatMode = RepeatMode.Reverse)
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onToggle(!isHitchhiker) }
+            .then(
+                if (isHitchhiker) {
+                    Modifier
+                        .drawBehind {
+                            val seed = 12345
+                            val random = java.util.Random(seed.toLong())
+                            val particleCount = 20
+                            
+                            for (i in 0 until particleCount) {
+                                val speed = random.nextFloat() * 1.5f + 0.5f
+                                val startX = random.nextFloat() * size.width
+                                val startY = random.nextFloat() * size.height
+                                
+                                // Calculate current position based on time
+                                val currentY = (startY - time * speed) % size.height
+                                val y = if (currentY < 0) size.height + currentY else currentY
+                                
+                                val pSize = random.nextFloat() * 4f + 2f
+                                
+                                // Pulse alpha
+                                val alpha = (Math.sin(time * 0.05 + i).toFloat() * 0.5f + 0.5f) * 0.6f
+                                
+                                drawCircle(
+                                    color = Color(0xFFE0B0FF).copy(alpha = alpha),
+                                    radius = pSize,
+                                    center = androidx.compose.ui.geometry.Offset(startX, y)
+                                )
+                            }
+                        }
+                        .border(
+                            width = 1.dp,
+                            color = Color(0xFFE0B0FF).copy(alpha = 0.5f + colorPhase * 0.5f),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        .background(Color(0xFF6A0DAD).copy(alpha = 0.1f))
+                } else {
+                    Modifier
+                }
+            )
+            .padding(12.dp)
+    ) {
+        content()
+    }
+}
+
+@Composable
+fun ReleaseAnimationOverlay(onComplete: () -> Unit) {
+    val pinY = remember { Animatable(0f) }
+    val pinScale = remember { Animatable(1f) }
+    val textAlpha = remember { Animatable(0f) }
+    
+    LaunchedEffect(Unit) {
+        // Phase 1: Wait a brief moment
+        delay(300)
+        
+        // Phase 2: Launch pin
+        launch {
+            pinY.animateTo(
+                targetValue = -1500f,
+                animationSpec = tween(1500, easing = androidx.compose.animation.core.CubicBezierEasing(0.4f, 0.0f, 1.0f, 1.0f))
+            )
+        }
+        launch {
+            pinScale.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(1500, easing = LinearEasing)
+            )
+        }
+        
+        delay(1500)
+        
+        // Phase 3: Text fade in
+        textAlpha.animateTo(1f, tween(500))
+        delay(1500)
+        
+        // Phase 4: Complete
+        onComplete()
+    }
+    
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.8f)),
+        contentAlignment = Alignment.Center
+    ) {
+        // Trail canvas
+        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+            if (pinY.value < 0f) {
+                drawLine(
+                    color = Color(0xFFE0B0FF),
+                    start = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f),
+                    end = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f + pinY.value),
+                    strokeWidth = 10f * pinScale.value,
+                    alpha = pinScale.value,
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round
+                )
+            }
+        }
+        
+        // Pin
+        if (pinScale.value > 0f) {
+            Icon(
+                imageVector = Icons.Default.LocationOn,
+                contentDescription = null,
+                tint = Color(0xFFE0B0FF),
+                modifier = Modifier
+                    .size(64.dp)
+                    .graphicsLayer {
+                        translationY = pinY.value
+                        scaleX = pinScale.value
+                        scaleY = pinScale.value
+                    }
+            )
+        }
+        
+        // Text
+        if (textAlpha.value > 0f) {
+            Text(
+                text = "Hitchhiker Released.",
+                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                color = Color.White,
+                modifier = Modifier.graphicsLayer { alpha = textAlpha.value }
+            )
+    }
+}
 }

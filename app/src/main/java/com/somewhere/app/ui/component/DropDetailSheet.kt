@@ -29,6 +29,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.LocationOn
+
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -165,28 +168,34 @@ fun DropDetailSheet(
             ) { onDismiss() },
         contentAlignment = Alignment.Center
     ) {
-        // ── Card: image + glass panel overlapping ──
+    // ── Card and Hitchhiker Buttons Container ──
+    Column(
+        modifier = Modifier
+            .offset { IntOffset(0, dragOffset.roundToInt()) }
+            .scale(scaleAnim)
+            .alpha(alphaAnim)
+            .fillMaxWidth(0.88f)
+            .clickable(
+                indication = null,
+                interactionSource = remember { MutableInteractionSource() }
+            ) {}
+            .draggable(
+                state = rememberDraggableState { delta ->
+                    dragOffset = (dragOffset + delta).coerceAtLeast(0f)
+                },
+                orientation = Orientation.Vertical,
+                onDragStopped = {
+                    if (dragOffset > 100f) onDismiss()
+                    else scope.launch { dragOffset = 0f }
+                }
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // The Card
         Box(
             modifier = Modifier
-                .offset { IntOffset(0, dragOffset.roundToInt()) }
-                .scale(scaleAnim)
-                .alpha(alphaAnim)
-                .fillMaxWidth(0.88f)
+                .fillMaxWidth()
                 .clip(RoundedCornerShape(20.dp))
-                .clickable(
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() }
-                ) {}
-                .draggable(
-                    state = rememberDraggableState { delta ->
-                        dragOffset = (dragOffset + delta).coerceAtLeast(0f)
-                    },
-                    orientation = Orientation.Vertical,
-                    onDragStopped = {
-                        if (dragOffset > 100f) onDismiss()
-                        else scope.launch { dragOffset = 0f }
-                    }
-                )
         ) {
             // Layer 1: Full image
             Column(
@@ -213,7 +222,7 @@ fun DropDetailSheet(
                 )
             }
 
-            AnimatedVisibility(
+            androidx.compose.animation.AnimatedVisibility(
                 visible = !isHoldingPhoto,
                 enter = fadeIn(tween(150)),
                 exit = fadeOut(tween(150)),
@@ -518,13 +527,76 @@ fun DropDetailSheet(
                         }
                     }, Modifier.size(36.dp)) {
                         Icon(Icons.Default.Send, null, Modifier.size(18.dp),
-                            if (commentText.isNotBlank()) TextHi else TextLo)
+                            if (commentText.isNotBlank()) TextHi else TextMd)
                     }
+                }
+
                 }
             }
         }
     }
-}
+
+    // Hitchhiker Buttons outside the card
+        if (drop.isHitchhiker && !isHoldingPhoto) {
+            Spacer(modifier = Modifier.height(16.dp))
+            val isCarrying = drop.carriedByUserId == currentUserId
+            androidx.compose.material3.Button(
+                onClick = {
+                    if (isCarrying) {
+                        // Pass it on (requires location)
+                        try {
+                            val client = com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(context)
+                            val token = com.google.android.gms.tasks.CancellationTokenSource().token
+                            client.getCurrentLocation(com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY, token)
+                                .addOnSuccessListener { loc ->
+                                    if (loc != null) {
+                                        scope.launch {
+                                            val success = repository.passOnHitchhiker(drop.id, loc.latitude, loc.longitude, null, context)
+                                            if (success) {
+                                                android.widget.Toast.makeText(context, "Passed it on!", android.widget.Toast.LENGTH_SHORT).show()
+                                                onDismiss()
+                                            } else {
+                                                android.widget.Toast.makeText(context, "Failed to drop", android.widget.Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    } else {
+                                        android.widget.Toast.makeText(context, "Waiting for GPS...", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                        } catch (e: SecurityException) {
+                            android.widget.Toast.makeText(context, "Location permission needed", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        // Pick up
+                        scope.launch {
+                            val success = repository.pickUpHitchhiker(drop.id)
+                            if (success) {
+                                android.widget.Toast.makeText(context, "Drop picked up! Check your Profile.", android.widget.Toast.LENGTH_SHORT).show()
+                                onDismiss()
+                            } else {
+                                android.widget.Toast.makeText(context, "Failed to pick up", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 0.dp),
+                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFF6A0DAD)
+                )
+            ) {
+                Icon(
+                    if (isCarrying) Icons.Default.LocationOn
+                    else Icons.Default.Add, 
+                    contentDescription = null, 
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(if (isCarrying) "Pass It On Here" else "Pick Up Hitchhiker", fontWeight = FontWeight.Bold)
+            }
+        }
+    }
 }
 
     DisposableEffect(Unit) {

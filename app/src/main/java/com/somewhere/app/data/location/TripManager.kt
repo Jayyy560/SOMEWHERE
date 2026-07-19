@@ -165,39 +165,15 @@ object TripManager {
         val state = _uiState.value
         val prompt = overridePrompt ?: state.promptText
 
+        val parsed = TripPromptParser.parse(prompt)
+
         // 0. Intercept Multi-Step "Then" Journey
-        val thenParts = prompt.split(Regex("(?i)\\s+then\\s+(?:take me to\\s+|to\\s+)?"), limit = 2)
-        if (thenParts.size == 2 && overridePrompt == null) {
+        if (parsed.multiStepNextPrompt != null && overridePrompt == null) {
             _uiState.value = state.copy(isLoading = true, error = null)
             routeSearchJob?.cancel()
             routeSearchJob = scope.launch {
                 try {
                     val repo = repository ?: return@launch
-                    val step1 = thenParts[0]
-                    val step2 = thenParts[1]
-                    
-                    // Quick parse step1
-                    val radRegex = Regex("(?i)(?:within|in)?\\s*([0-9]+(?:\\.[0-9]+)?)\\s*(mile|miles|km|kilometers|kilometer|m|meter|meters)")
-                    val radMatch = radRegex.find(step1)
-                    var step1Radius = 5000.0 // Default 5km radius if not specified
-                    if (radMatch != null) {
-                        val amount = radMatch.groupValues[1].toDoubleOrNull() ?: 5.0
-                        val unit = radMatch.groupValues[2].lowercase()
-                        step1Radius = when {
-                            unit.startsWith("k") -> amount * 1000.0
-                            unit == "m" || unit == "meter" || unit == "meters" -> amount
-                            else -> amount * 1609.34
-                        }
-                    }
-                    var step1Query = step1
-                    radMatch?.let { step1Query = step1Query.replace(it.value, "") }
-                    step1Query = step1Query.replace(Regex("(?i)\\bradius\\b"), "").trim()
-
-                    // Extract exclusions for step1
-                    val excRegex = Regex("(?i)(?:without\\s+|-)([\\w]+)")
-                    val exclusions = excRegex.findAll(step1Query).map { it.groupValues[1] }.toList()
-                    excRegex.findAll(step1Query).forEach { step1Query = step1Query.replace(it.value, "") }
-
                     if (currentLat == null || currentLng == null) {
                         _uiState.value = state.copy(error = "Waiting for GPS signal... please wait a moment.", isLoading = false)
                         return@launch
@@ -205,13 +181,13 @@ object TripManager {
                     val cLat = currentLat
                     val cLng = currentLng
                     
-                    val step1Drops = repo.getDropsAroundLocation(cLat, cLng, step1Radius)
-                    val step1Filtered = repo.filterDropsByQuery(step1Drops, step1Query, exclusions)
+                    val step1Drops = repo.getDropsAroundLocation(cLat, cLng, parsed.radiusMeters ?: 5000.0)
+                    val step1Filtered = repo.filterDropsByQuery(step1Drops, parsed.query, parsed.exclusions)
                     
                     val bestDrop = step1Filtered.firstOrNull() // Pick the closest/best matching drop based on backend sort
                     if (bestDrop != null) {
                         // Construct the new prompt to force the multi-stop route
-                        val newPrompt = "from $cLat,$cLng to $step2 via ${bestDrop.latitude},${bestDrop.longitude}"
+                        val newPrompt = "from $cLat,$cLng to ${parsed.multiStepNextPrompt} via ${bestDrop.latitude},${bestDrop.longitude}"
                         searchRoute(currentLat, currentLng, overridePrompt = newPrompt)
                     } else {
                         _uiState.value = state.copy(error = "Could not find any drops for the first part of your journey.", isLoading = false)
@@ -224,104 +200,15 @@ object TripManager {
             return
         }
 
-        // 1. Extract Exclusions ("without X" or "-X")
-        val exclusionRegex = Regex("(?i)(?:without\\s+|-)([\\w]+)")
-        val exclusions = exclusionRegex.findAll(prompt).map { it.groupValues[1] }.toList()
+        var origin = parsed.origin
+        var destination = parsed.destination ?: ""
+        val waypoint = parsed.waypoint
+        val query = parsed.query
+        val exclusions = parsed.exclusions
+        var radiusMeters = parsed.radiusMeters
+        val isSurpriseMe = parsed.action == TripAction.SURPRISE_ME
 
-        // 2. Extract "within X miles/km"
-        val radiusRegex = Regex("(?i)(?:within|in)?\\s*([0-9]+(?:\\.[0-9]+)?)\\s*(mile|miles|km|kilometers|kilometer|m|meter|meters)")
-        val radiusMatch = radiusRegex.find(prompt)
-        var radiusMeters: Double? = null
-        if (radiusMatch != null) {
-            val amount = radiusMatch.groupValues[1].toDoubleOrNull() ?: 5.0
-            val unit = radiusMatch.groupValues[2].lowercase()
-            radiusMeters = when {
-                unit.startsWith("k") -> amount * 1000.0
-                unit == "m" || unit == "meter" || unit == "meters" -> amount
-                else -> amount * 1609.34 // miles
-            }
-        }
-        
-        // 2b. Handle "nearby" / "around me" as shorthand for 2km radius
-        val nearbyRegex = Regex("(?i)\\b(nearby|around me|near me|close by|close to me)\\b")
-        if (radiusMeters == null && nearbyRegex.containsMatchIn(prompt)) {
-            radiusMeters = 2000.0
-        }
-
-        // 2. Check for "surprise me"
-        val isSurpriseMe = prompt.contains("surprise me", ignoreCase = true) || prompt.contains("take me somewhere", ignoreCase = true)
-
-        // 3. Extract origin, destination, waypoint
-        val fromRegex = Regex("(?i)from\\s+(.*?)(?=\\s+to\\s+|\\s+via\\s+|$)")
-        val originMatch = fromRegex.find(prompt)
-        var origin = originMatch?.groupValues?.getOrNull(1)?.trim() ?: ""
-
-        val toRegex = Regex("(?i)to\\s+(.*?)(?=\\s+from\\s+|\\s+via\\s+|$)")
-        val destinationMatch = toRegex.find(prompt)
-        var destination = destinationMatch?.groupValues?.getOrNull(1)?.trim() ?: ""
-
-        val viaRegex = Regex("(?i)via\\s+(.*?)(?=\\s+from\\s+|\\s+to\\s+|\\s+within\\s+|$)")
-        val waypointMatch = viaRegex.find(prompt)
-        val waypoint = waypointMatch?.groupValues?.getOrNull(1)?.trim()
-
-        // Extract query (everything else)
-        var query = prompt
-        fromRegex.find(prompt)?.let { query = query.replace(it.value, "") }
-        toRegex.find(prompt)?.let { query = query.replace(it.value, "") }
-        viaRegex.find(prompt)?.let { query = query.replace(it.value, "") }
-        radiusRegex.find(prompt)?.let { query = query.replace(it.value, "") }
-        exclusionRegex.findAll(prompt).forEach { query = query.replace(it.value, "") }
-        query = query.replace(Regex("(?i)\\bradius\\b"), "")
-        query = query.replace("surprise me", "", ignoreCase = true)
-        query = query.replace("take me somewhere", "", ignoreCase = true)
-        query = query.trim()
-        // If they just typed something with no from/to/within keywords, figure out if it's
-        // a DESTINATION (place name) or a SEARCH QUERY (category/intent).
-        // The old logic treated almost everything as a destination, which broke constantly.
-        if (origin.isBlank() && destination.isBlank() && radiusMeters == null && !isSurpriseMe && prompt.isNotBlank()) {
-            // Words/phrases that clearly indicate a search query, NOT a place name
-            val knownQueryWords = listOf(
-                "food", "cafes", "cafe", "coffee", "restaurant", "restaurants",
-                "music", "art", "photography", "photos", "photo", "stories", "story",
-                "hidden", "gems", "gem", "secret", "secrets", "anonymous",
-                "history", "historic", "historical", "event", "events",
-                "recommendation", "recommendations", "memory", "memories",
-                "audio", "voice", "text", "recent", "latest", "new", "newest",
-                "all", "everything", "anything", "drops", "spots", "spot",
-                "best", "worthy", "cool", "interesting", "beautiful", "popular",
-                "nearby", "around", "close"
-            )
-            val promptLower = prompt.lowercase().trim()
-            val promptWords = promptLower.split("\\s+".toRegex())
-
-            // Routing intent: user explicitly wants to GO somewhere
-            val routingIntentRegex = Regex("(?i)\\b(take me to|route me to|navigate to|directions to|go to|drive to)\\b")
-            val stronglyImpliesRoute = routingIntentRegex.containsMatchIn(prompt)
-
-            // Check if any word in the prompt matches a known query/category word
-            val looksLikeQuery = promptWords.any { word -> knownQueryWords.contains(word) }
-
-            if (stronglyImpliesRoute) {
-                // Explicit routing — strip the routing phrase and use the rest as destination
-                destination = prompt.replace(routingIntentRegex, "").trim()
-                query = ""
-            } else if (looksLikeQuery || promptWords.size > 2) {
-                // Looks like a search query (category words detected, or it's a multi-word phrase)
-                // → treat as a radius search with the full prompt as the query
-                query = prompt
-                radiusMeters = 5000.0  // Default 5km
-            } else if (promptWords.size == 1 && prompt.length < 25) {
-                // Single short word that doesn't match known queries — probably a place name
-                destination = prompt
-                query = ""
-            } else {
-                // Fallback: treat as a query within 5km
-                query = prompt
-                radiusMeters = 5000.0
-            }
-        }
-
-        if (origin.isBlank() || origin.lowercase() in listOf("here", "current location", "my location", "me")) {
+        if (origin.isNullOrBlank()) {
             if (currentLat != null && currentLng != null) {
                 origin = "$currentLat,$currentLng"
             } else {

@@ -23,5 +23,7 @@ data class NearbyDrop(
     @SerialName("file_url") val fileUrl: String? = null,
     @SerialName("file_type") val fileType: String? = null,
     @SerialName("file_name") val fileName: String? = null,
-    @SerialName("file_size") val fileSize: Long? = null
+    @SerialName("file_size") val fileSize: Long? = null,
+    @SerialName("is_hitchhiker") val isHitchhiker: Boolean = false,
+    @SerialName("carried_by_user_id") val carriedByUserId: String? = null
 )

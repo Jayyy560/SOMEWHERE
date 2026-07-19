@@ -42,6 +42,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.LockOpen
@@ -53,6 +54,7 @@ fun ProfileScreen(
 ) {
     val myDrops by viewModel.myDrops.collectAsState()
     val unlockedDrops by viewModel.unlockedDrops.collectAsState()
+    val carriedDrops by viewModel.carriedDrops.collectAsState()
     var selectedDrop by remember { mutableStateOf<Drop?>(null) }
     var selectedTabIndex by remember { mutableStateOf(0) }
     var showSettingsMenu by remember { mutableStateOf(false) }
@@ -200,13 +202,22 @@ fun ProfileScreen(
                         onClick = { selectedTabIndex = 1 },
                         text = { Text("Discovered (${unlockedDrops.size})") }
                     )
+                    Tab(
+                        selected = selectedTabIndex == 2,
+                        onClick = { selectedTabIndex = 2 },
+                        text = { Text("Backpack (${carriedDrops.size})") }
+                    )
                 }
             }
             
             Spacer(modifier = Modifier.height(8.dp))
 
             // Grid
-            val currentList = if (selectedTabIndex == 0) myDrops else unlockedDrops
+            val currentList = when (selectedTabIndex) {
+                0 -> myDrops
+                1 -> unlockedDrops
+                else -> carriedDrops
+            }
             val isLoading by viewModel.isLoading.collectAsState()
 
             if (isLoading) {
@@ -232,15 +243,25 @@ fun ProfileScreen(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
+                    val emptyIcon = when (selectedTabIndex) {
+                        0 -> Icons.Default.LocationOn
+                        1 -> Icons.Default.LockOpen
+                        else -> Icons.Default.List
+                    }
+                    val emptyText = when (selectedTabIndex) {
+                        0 -> "It's quiet here...\nBe the first to leave a mark!"
+                        1 -> "You haven't discovered any drops yet.\nGet out there and explore!"
+                        else -> "Your backpack is empty.\nPick up a Hitchhiker Drop!"
+                    }
                     Icon(
-                        imageVector = if (selectedTabIndex == 0) Icons.Default.LocationOn else Icons.Default.LockOpen,
+                        imageVector = emptyIcon,
                         contentDescription = null,
                         modifier = Modifier.size(64.dp),
                         tint = SomewhereColors.TextMuted
                     )
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = if (selectedTabIndex == 0) "It's quiet here...\nBe the first to leave a mark!" else "You haven't discovered any drops yet.\nGet out there and explore!",
+                        text = emptyText,
                         style = MaterialTheme.typography.bodyLarge,
                         color = SomewhereColors.TextSecondary,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center

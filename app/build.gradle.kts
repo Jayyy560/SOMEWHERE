@@ -163,4 +163,7 @@ dependencies {
 
     // ARCore Sceneview
     implementation("io.github.sceneview:arsceneview:2.3.0")
+
+    // Testing
+    testImplementation("junit:junit:4.13.2")
 }

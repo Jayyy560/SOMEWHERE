@@ -27,6 +27,13 @@ class ProfileViewModel @Inject constructor(
             initialValue = emptyList()
         )
 
+    val carriedDrops: StateFlow<List<Drop>> = repository.getCarriedDrops()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
     private val _unlockedDrops = kotlinx.coroutines.flow.MutableStateFlow<List<Drop>>(emptyList())
     val unlockedDrops: StateFlow<List<Drop>> = _unlockedDrops
 
@@ -37,6 +44,7 @@ class ProfileViewModel @Inject constructor(
         viewModelScope.launch {
             com.somewhere.app.data.remote.SupabaseManager.client.auth.sessionStatus.collect {
                 repository.syncMyDrops()
+                repository.syncCarriedDrops()
                 loadUnlockedDrops()
             }
         }

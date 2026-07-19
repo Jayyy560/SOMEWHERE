@@ -41,7 +41,8 @@ class DropViewModel @Inject constructor(
         val deadDropFileUri: Uri? = null,
         val deadDropFileName: String? = null,
         val deadDropFileSize: Long? = null,
-        val deadDropFileType: String? = null
+        val deadDropFileType: String? = null,
+        val isHitchhiker: Boolean = false
     )
 
     private val _uiState = MutableStateFlow(
@@ -132,6 +133,10 @@ class DropViewModel @Inject constructor(
         }
     }
 
+    fun setHitchhiker(isHitchhiker: Boolean) {
+        _uiState.update { it.copy(isHitchhiker = isHitchhiker) }
+    }
+
     fun clearFile() {
         _uiState.update { 
             it.copy(
@@ -166,7 +171,8 @@ class DropViewModel @Inject constructor(
                     fileUri = state.deadDropFileUri?.toString(),
                     fileType = state.deadDropFileType,
                     fileName = state.deadDropFileName,
-                    fileSize = state.deadDropFileSize
+                    fileSize = state.deadDropFileSize,
+                    isHitchhiker = state.isHitchhiker
                 )
                 _uiState.update { it.copy(isSaving = false, isSaved = true) }
             } catch (e: Exception) {
