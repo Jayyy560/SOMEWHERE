@@ -122,7 +122,7 @@ object ARUtils {
                 val bearing = LocationUtils.bearing(userLat, userLon, coords.first, coords.second)
                 bearingRad = Math.toRadians(bearing.toDouble())
                 heightOffset = -0.2f
-                placementDistance = distance.coerceIn(2f, 25f)
+                placementDistance = distance.coerceIn(2f, 10f)
             }
 
             val dropAngleInWorld = northAngle + bearingRad

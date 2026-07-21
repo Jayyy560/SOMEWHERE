@@ -376,6 +376,10 @@ fun DiscoveryScreen(
                         }
                     }
 
+                } else if (arCoreSupported == null) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = SomewhereColors.Accent)
+                    }
                 } else if (arCoreSupported == false) {
                     // Fallback to CameraX
                     AndroidView(
@@ -405,7 +409,12 @@ fun DiscoveryScreen(
 
                             previewView
                         },
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onGloballyPositioned { coords ->
+                                arViewWidthPx = coords.size.width
+                                arViewHeightPx = coords.size.height
+                            }
                     )
                     
                     // Compass fallback overlay

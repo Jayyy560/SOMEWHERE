@@ -242,6 +242,7 @@ fun ProfileScreen(
 
             // Grid
             val isLoading by viewModel.isLoading.collectAsState()
+            var isRefreshing by remember { mutableStateOf(false) }
 
             androidx.compose.animation.AnimatedContent(
                 targetState = selectedTabIndex,
@@ -318,8 +319,15 @@ fun ProfileScreen(
                 } else {
                     @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
                     androidx.compose.material3.pulltorefresh.PullToRefreshBox(
-                        isRefreshing = isLoading,
-                        onRefresh = { viewModel.refreshUnlockedDrops() },
+                        isRefreshing = isRefreshing,
+                        onRefresh = {
+                            isRefreshing = true
+                            viewModel.refreshUnlockedDrops()
+                            scope.launch {
+                                kotlinx.coroutines.delay(800)
+                                isRefreshing = false
+                            }
+                        },
                         modifier = Modifier.fillMaxSize()
                     ) {
                         LazyVerticalGrid(
