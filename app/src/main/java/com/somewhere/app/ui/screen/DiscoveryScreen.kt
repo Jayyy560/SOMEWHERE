@@ -55,6 +55,7 @@ import com.somewhere.app.ui.component.shimmerEffect
 import com.somewhere.app.ui.component.DropOverlayCard
 import com.somewhere.app.ui.component.PingPulse
 import com.somewhere.app.ui.component.TutorialOverlay
+import com.somewhere.app.ui.component.SomewhereButton
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.util.LocationUtils
 import com.somewhere.app.util.rememberReduceMotionEnabled
@@ -222,18 +223,15 @@ fun DiscoveryScreen(
             var viewMatrix by remember { mutableStateOf<FloatArray?>(null) }
             var projMatrix by remember { mutableStateOf<FloatArray?>(null) }
             var cameraPos by remember { mutableStateOf(floatArrayOf(0f, 0f, 0f)) }
-            var arViewWidthPx by remember { mutableStateOf(0) }
-            var arViewHeightPx by remember { mutableStateOf(0) }
+            
+            val configuration = LocalConfiguration.current
+            val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }.toInt()
+            val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }.toInt()
 
             if (!showListView) {
                 if (arCoreSupported == true) {
                     AndroidView(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .onGloballyPositioned { coords ->
-                                arViewWidthPx = coords.size.width
-                                arViewHeightPx = coords.size.height
-                            },
+                        modifier = Modifier.fillMaxSize(),
                         factory = { ctx ->
                             ARSceneView(ctx).apply {
                                 planeRenderer.isVisible = false
@@ -254,8 +252,10 @@ fun DiscoveryScreen(
                                     com.somewhere.app.util.ARUtils.calibrateNorth(cameraPose, heading)
 
                                     val state = viewModel.uiState.value
-                                    if (state.hasLocation && visibleDrops.isNotEmpty()) {
-                                        val drops = visibleDrops.mapIndexed { index, item ->
+                                    val currentVisibleDrops = state.nearbyDrops.filter { it.drop.id !in hiddenDropIds }
+                                    
+                                    if (state.hasLocation && currentVisibleDrops.isNotEmpty()) {
+                                        val drops = currentVisibleDrops.mapIndexed { index, item ->
                                             Pair(item.drop.id, Pair(item.drop.latitude, item.drop.longitude))
                                         }
                                         com.somewhere.app.util.ARUtils.recomputeAllPositions(
@@ -284,20 +284,22 @@ fun DiscoveryScreen(
                     )
                     
                     // 2.5D Overlay layer drawn ON TOP of the ARSceneView
-                    // KEY: No spring animation — drops must track the camera INSTANTLY
-                    // like real-world objects do. Any lag = "sticker on screen" feeling.
                     val currentViewMatrix = viewMatrix
                     val currentProjMatrix = projMatrix
-                    if (arViewWidthPx > 0 && arViewHeightPx > 0 && currentViewMatrix != null && currentProjMatrix != null) {
+                    if (currentViewMatrix != null && currentProjMatrix != null) {
                         val halfCardWidthPx = with(density) { 80.dp.toPx().toInt() }
                         val halfCardHeightPx = with(density) { 50.dp.toPx().toInt() }
 
-                        visibleDrops.forEach { item ->
+                        uiState.nearbyDrops.forEach { item ->
+                            if (item.drop.id in hiddenDropIds) return@forEach
+
                             val worldPos = com.somewhere.app.util.ARUtils.getWorldPosition(item.drop.id)
+                            android.util.Log.e("AR_DEBUG", "Drop ${item.drop.id.take(5)}: worldPos=${worldPos?.contentToString()}")
                             if (worldPos != null) {
                                 val screenPos = com.somewhere.app.util.ARUtils.projectToScreen(
-                                    worldPos, currentViewMatrix, currentProjMatrix, arViewWidthPx, arViewHeightPx
+                                    worldPos, currentViewMatrix, currentProjMatrix, screenWidthPx, screenHeightPx
                                 )
+                                android.util.Log.e("AR_DEBUG", "Drop ${item.drop.id.take(5)}: screenPos=$screenPos, distanceAlpha...")
                                 if (screenPos != null) {
                                     val dx = cameraPos[0] - worldPos[0]
                                     val dy = cameraPos[1] - worldPos[1]
@@ -314,7 +316,7 @@ fun DiscoveryScreen(
                                     // Ground shadow projected below the card for spatial grounding
                                     val shadowScreenPos = com.somewhere.app.util.ARUtils.projectToScreen(
                                         floatArrayOf(worldPos[0], worldPos[1] - 0.8f, worldPos[2]),
-                                        currentViewMatrix, currentProjMatrix, arViewWidthPx, arViewHeightPx
+                                        currentViewMatrix, currentProjMatrix, screenWidthPx, screenHeightPx
                                     )
 
                                     // Draw ground shadow first (behind the card)
@@ -409,12 +411,7 @@ fun DiscoveryScreen(
 
                             previewView
                         },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .onGloballyPositioned { coords ->
-                                arViewWidthPx = coords.size.width
-                                arViewHeightPx = coords.size.height
-                            }
+                        modifier = Modifier.fillMaxSize()
                     )
                     
                     // Compass fallback overlay
@@ -487,6 +484,7 @@ fun DiscoveryScreen(
                             )
                         }
                     }
+
                 }
             } else {
                 // List View Fallback

@@ -63,6 +63,7 @@ object ARUtils {
         val rawNorthAngle = cameraAngleInWorld - headingRad
 
         calibrationFrameCount++
+        android.util.Log.e("AR_DEBUG", "calibrateNorth called! frameCount=$calibrationFrameCount")
 
         val cached = cachedNorthAngle
         if (cached == null) {
@@ -138,14 +139,15 @@ object ARUtils {
                 val anchor = session.createAnchor(pose)
                 dropAnchors[id] = anchor
             } catch (e: Exception) {
-                // Ignore tracking failures gracefully
+                android.util.Log.e("AR_DEBUG", "Failed to create anchor for ${id}: ${e.message}", e)
             }
         }
     }
 
     fun getWorldPosition(dropId: String): FloatArray? {
         val anchor = dropAnchors[dropId] ?: return null
-        // Allow PAUSED state so drops don't blink out when ARCore is readjusting
+        // If an anchor completely loses tracking permanently, it must be removed 
+        // so it can be re-created by recomputeAllPositions.
         if (anchor.trackingState == com.google.ar.core.TrackingState.STOPPED) {
             dropAnchors.remove(dropId)
             return null
