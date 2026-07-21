@@ -387,3 +387,4 @@ class DiscoveryViewModel @Inject constructor(
         stopTracking()
     }
 }
+// End of file
