@@ -63,6 +63,7 @@ fun AuthScreen(
             .fillMaxSize()
             .background(SomewhereColors.Background)
             .systemBarsPadding()
+            .imePadding()
             .padding(24.dp)
             .alpha(contentAlpha),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -72,19 +73,6 @@ fun AuthScreen(
             text = if (uiState.mode == AuthViewModel.Mode.SIGN_IN) "Sign in" else "Create account",
             style = MaterialTheme.typography.headlineMedium
         )
-
-        val host = remember {
-            runCatching { URI(BuildConfig.SUPABASE_URL).host ?: BuildConfig.SUPABASE_URL }
-                .getOrDefault(BuildConfig.SUPABASE_URL)
-        }
-        if (host.isNotBlank()) {
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "Supabase: $host",
-                style = MaterialTheme.typography.labelSmall,
-                color = SomewhereColors.TextMuted
-            )
-        }
 
         Spacer(Modifier.height(24.dp))
 
@@ -147,7 +135,7 @@ fun AuthScreen(
             Spacer(Modifier.height(12.dp))
             Text(
                 text = uiState.successMessage ?: "",
-                color = Color(0xFF4CAF50), // Green for success
+                color = SomewhereColors.AccuracyGood, // Green for success
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,
                 modifier = Modifier

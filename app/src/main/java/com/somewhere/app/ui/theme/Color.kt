@@ -19,6 +19,7 @@ object SomewhereColors {
 
     val Accent = Color(0xFFF5F5F5)
     val AccentSubtle = Color(0xFFB0B0B0)
+    val AccentPurple = Color(0xFFE0B0FF)
 
     val Overlay = Color(0xCC0A0A0A)     // 80% opacity black
     val OverlayLight = Color(0x660A0A0A) // 40% opacity black

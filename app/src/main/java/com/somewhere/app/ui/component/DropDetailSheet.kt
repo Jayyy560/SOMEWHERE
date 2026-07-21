@@ -84,12 +84,16 @@ import kotlin.math.sin
 import kotlinx.coroutines.launch
 import io.github.jan.supabase.gotrue.auth
 
-// Glass panel: translucent dark with blue tint — lets the image bleed through
-private val GlassPanelBg = Color(0xCC1E1E28)
-private val InnerBg = Color(0xFF2A2A32)
-private val TextHi = Color(0xFFF0F0F0)
-private val TextMd = Color(0xFF9A9AA0)
-private val TextLo = Color(0xFF55555A)
+import androidx.compose.material3.AlertDialog
+import androidx.compose.ui.semantics.Role
+import com.somewhere.app.ui.theme.SomewhereColors
+
+// Using theme colors instead of hardcoded hex values
+private val GlassPanelBg = SomewhereColors.GlassBackground
+private val InnerBg = SomewhereColors.Card
+private val TextHi = SomewhereColors.TextPrimary
+private val TextMd = SomewhereColors.TextSecondary
+private val TextLo = SomewhereColors.TextMuted
 
 @Composable
 fun DropDetailSheet(
@@ -105,7 +109,7 @@ fun DropDetailSheet(
     var isHoldingPhoto by remember { mutableStateOf(false) }
     val reduceMotion = rememberReduceMotionEnabled()
     val scope = rememberCoroutineScope()
-    var dragOffset by remember { mutableStateOf(0f) }
+    val dragOffsetAnim = remember { androidx.compose.animation.core.Animatable(0f) }
     var player by remember { mutableStateOf<MediaPlayer?>(null) }
     var isAudioPlaying by remember { mutableStateOf(false) }
 
@@ -117,6 +121,7 @@ fun DropDetailSheet(
     var isEditing by remember { mutableStateOf(false) }
     var editDropText by remember { mutableStateOf(drop.text) }
     var showActions by remember { mutableStateOf(false) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
     val repository = remember { (context.applicationContext as SomewhereApplication).repository }
@@ -161,8 +166,9 @@ fun DropDetailSheet(
         modifier = Modifier
             .fillMaxSize()
             .alpha(alphaAnim)
-            .background(Color(0xB3000000))
+            .background(SomewhereColors.Overlay)
             .clickable(
+                role = Role.Button,
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() }
             ) { onDismiss() },
@@ -171,7 +177,7 @@ fun DropDetailSheet(
     // ── Card and Hitchhiker Buttons Container ──
     Column(
         modifier = Modifier
-            .offset { IntOffset(0, dragOffset.roundToInt()) }
+            .offset { IntOffset(0, dragOffsetAnim.value.roundToInt()) }
             .scale(scaleAnim)
             .alpha(alphaAnim)
             .fillMaxWidth(0.88f)
@@ -181,12 +187,27 @@ fun DropDetailSheet(
             ) {}
             .draggable(
                 state = rememberDraggableState { delta ->
-                    dragOffset = (dragOffset + delta).coerceAtLeast(0f)
+                    scope.launch {
+                        dragOffsetAnim.snapTo((dragOffsetAnim.value + delta).coerceAtLeast(0f))
+                    }
                 },
                 orientation = Orientation.Vertical,
-                onDragStopped = {
-                    if (dragOffset > 100f) onDismiss()
-                    else scope.launch { dragOffset = 0f }
+                onDragStopped = { velocity ->
+                    if (dragOffsetAnim.value > 200f || velocity > 1000f) {
+                        expanded = false
+                        scope.launch {
+                            kotlinx.coroutines.delay(200)
+                            onDismiss()
+                        }
+                    }
+                    else {
+                        scope.launch { 
+                            dragOffsetAnim.animateTo(
+                                targetValue = 0f,
+                                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium)
+                            ) 
+                        }
+                    }
                 }
             ),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -216,7 +237,7 @@ fun DropDetailSheet(
             ) {
                 AsyncImage(
                     model = drop.imageUrl,
-                    contentDescription = null,
+                    contentDescription = "Drop Image",
                     modifier = Modifier.fillMaxWidth().aspectRatio(3f / 4f),
                     contentScale = ContentScale.Crop
                 )
@@ -232,11 +253,11 @@ fun DropDetailSheet(
 
             // Layer 2: Close button (top right)
             Box(
-                Modifier.align(Alignment.TopEnd).padding(10.dp).size(30.dp)
-                    .clip(CircleShape).background(Color(0x55000000))
-                    .clickable { onDismiss() },
+                Modifier.align(Alignment.TopEnd).padding(10.dp).sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    .clip(CircleShape).background(SomewhereColors.OverlayLight)
+                    .clickable(role = Role.Button) { onDismiss() },
                 contentAlignment = Alignment.Center
-            ) { Icon(Icons.Default.Close, null, Modifier.size(16.dp), Color.White) }
+            ) { Icon(Icons.Default.Close, "Close detail view", Modifier.size(24.dp), Color.White) }
 
             // Expiry badge (moment drops only)
             if (drop.expiresAt != null) {
@@ -352,7 +373,7 @@ fun DropDetailSheet(
                             }
                         }, Modifier.size(32.dp)) {
                             Icon(if (isAudioPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                null, Modifier.size(18.dp), TextHi)
+                                "Play Audio", Modifier.size(18.dp), TextHi)
                         }
                         DetailWaveform(active = isAudioPlaying, modifier = Modifier.weight(1f))
                     }
@@ -373,7 +394,7 @@ fun DropDetailSheet(
                             .clip(RoundedCornerShape(12.dp)).background(InnerBg).padding(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(fileIcon, null, Modifier.size(20.dp), TextMd)
+                        Icon(fileIcon, "File Type", Modifier.size(20.dp), TextMd)
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
                             Text(drop.fileName ?: "Attachment",
@@ -405,7 +426,7 @@ fun DropDetailSheet(
                                 else Icon(Icons.Default.Download, null, Modifier.size(18.dp), TextHi)
                             }
                         } else {
-                            Icon(Icons.Default.Lock, null, Modifier.size(18.dp), TextLo)
+                            Icon(Icons.Default.Lock, "Locked", Modifier.size(18.dp), TextLo)
                         }
                     }
                     if (!canDownload) {
@@ -430,12 +451,12 @@ fun DropDetailSheet(
                         }
                     }, Modifier.size(34.dp)) {
                         Icon(if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            null, Modifier.size(18.dp).scale(likeScaleAnim),
-                            if (isLiked) Color(0xFFFF453A) else TextMd)
+                            "Like Drop", Modifier.size(18.dp).scale(likeScaleAnim),
+                            if (isLiked) SomewhereColors.Error else TextMd)
                     }
                     Text("$likeCount", style = MaterialTheme.typography.labelMedium, color = TextMd)
                     Spacer(Modifier.width(8.dp))
-                    Icon(Icons.Default.ChatBubbleOutline, null, Modifier.size(16.dp), TextMd)
+                    Icon(Icons.Default.ChatBubbleOutline, "Comments", Modifier.size(16.dp), TextMd)
                     Spacer(Modifier.width(4.dp))
                     Text("${comments.size}", style = MaterialTheme.typography.labelMedium, color = TextMd)
 
@@ -447,12 +468,12 @@ fun DropDetailSheet(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(10.dp))
                                 .background(InnerBg)
-                                .clickable { onFindSpot(drop.imageUrl) }
+                                .clickable(role = Role.Button) { onFindSpot(drop.imageUrl) }
                                 .padding(horizontal = 12.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(5.dp)
                         ) {
-                            Icon(Icons.Default.CameraAlt, null, Modifier.size(14.dp), TextMd)
+                            Icon(Icons.Default.CameraAlt, "Find Spot", Modifier.size(14.dp), TextMd)
                             Text("Find Spot",
                                 style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
                                 color = TextMd)
@@ -460,8 +481,8 @@ fun DropDetailSheet(
                     }
 
                     Spacer(Modifier.width(6.dp))
-                    IconButton(onClick = { showActions = !showActions }, Modifier.size(30.dp)) {
-                        Icon(Icons.Default.MoreHoriz, null, Modifier.size(18.dp), TextMd)
+                    IconButton(onClick = { showActions = !showActions }, Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
+                        Icon(Icons.Default.MoreHoriz, "More Actions", Modifier.size(24.dp), TextMd)
                     }
                 }
 
@@ -474,12 +495,12 @@ fun DropDetailSheet(
                                 putExtra(android.content.Intent.EXTRA_TEXT, "\"${drop.text}\""); type = "text/plain"
                             }
                             context.startActivity(android.content.Intent.createChooser(i, null))
-                        }, Modifier.size(30.dp)) { Icon(Icons.Default.Share, null, Modifier.size(16.dp), TextMd) }
-                        IconButton(onClick = onBlock, Modifier.size(30.dp)) { Icon(Icons.Default.Block, null, Modifier.size(16.dp), TextMd) }
-                        IconButton(onClick = onReport, Modifier.size(30.dp)) { Icon(Icons.Default.Report, null, Modifier.size(16.dp), TextMd) }
+                        }, Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Icon(Icons.Default.Share, "Share", Modifier.size(24.dp), TextMd) }
+                        IconButton(onClick = onBlock, Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Icon(Icons.Default.Block, "Block", Modifier.size(24.dp), TextMd) }
+                        IconButton(onClick = onReport, Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Icon(Icons.Default.Report, "Report", Modifier.size(24.dp), TextMd) }
                         if (drop.authorId != null && drop.authorId == currentUserId) {
-                            IconButton(onClick = { isEditing = true }, Modifier.size(30.dp)) { Icon(Icons.Default.Edit, null, Modifier.size(16.dp), TextMd) }
-                            IconButton(onClick = onDelete, Modifier.size(30.dp)) { Icon(Icons.Default.Delete, null, Modifier.size(16.dp), Color(0xFFFF453A)) }
+                            IconButton(onClick = { isEditing = true }, Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Icon(Icons.Default.Edit, "Edit", Modifier.size(24.dp), TextMd) }
+                            IconButton(onClick = { showDeleteDialog = true }, Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Icon(Icons.Default.Delete, "Delete", Modifier.size(24.dp), SomewhereColors.Error) }
                         }
                     }
                 }
@@ -525,8 +546,8 @@ fun DropDetailSheet(
                                 catch (e: Exception) { android.widget.Toast.makeText(context, "Failed", android.widget.Toast.LENGTH_SHORT).show() }
                             }
                         }
-                    }, Modifier.size(36.dp)) {
-                        Icon(Icons.Default.Send, null, Modifier.size(18.dp),
+                    }, Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
+                        Icon(Icons.Default.Send, "Send Comment", Modifier.size(24.dp),
                             if (commentText.isNotBlank()) TextHi else TextMd)
                     }
                 }
@@ -589,7 +610,7 @@ fun DropDetailSheet(
                 Icon(
                     if (isCarrying) Icons.Default.LocationOn
                     else Icons.Default.Add, 
-                    contentDescription = null, 
+                    contentDescription = "Hitchhiker Action", 
                     modifier = Modifier.size(18.dp)
                 )
                 Spacer(Modifier.width(8.dp))
@@ -598,6 +619,30 @@ fun DropDetailSheet(
         }
     }
 }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Delete Drop") },
+            text = { Text("Are you sure you want to delete this drop? This action cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = { 
+                    showDeleteDialog = false
+                    onDelete() 
+                }) {
+                    Text("Delete", color = SomewhereColors.Error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancel", color = TextHi)
+                }
+            },
+            containerColor = InnerBg,
+            titleContentColor = TextHi,
+            textContentColor = TextMd
+        )
+    }
 
     DisposableEffect(Unit) {
         onDispose { runCatching { player?.stop(); player?.release() }; isAudioPlaying = false }

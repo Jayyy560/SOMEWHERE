@@ -157,6 +157,7 @@ fun TripScreen(
         
         // Preview Sheet
         previewDrop?.let { drop ->
+            androidx.activity.compose.BackHandler { previewDrop = null }
             val mappedDrop = com.somewhere.app.data.model.Drop(
                 id = drop.id,
                 text = drop.text,
@@ -371,7 +372,7 @@ private fun TripInputPhase(
             ) {
                 Icon(
                     Icons.Default.Search,
-                    contentDescription = null,
+                    contentDescription = "Search Icon",
                     tint = Color.White,
                     modifier = Modifier.size(24.dp)
                 )
@@ -449,7 +450,7 @@ private fun TripInputPhase(
                         .clip(CircleShape)
                         .background(SomewhereColors.GlassBackground)
                         .border(BorderStroke(0.5.dp, SomewhereColors.GlassBorder), CircleShape)
-                        .clickable { onSearch() },
+                        .clickable(role = androidx.compose.ui.semantics.Role.Button) { onSearch() },
                     contentAlignment = Alignment.Center
                 ) {
                     if (uiState.isLoading) {
@@ -490,7 +491,7 @@ private fun TripInputPhase(
                     ) {
                         Icon(
                             Icons.Default.Place,
-                            contentDescription = null,
+                            contentDescription = "Location Suggestion",
                             tint = SomewhereColors.TextSecondary,
                             modifier = Modifier.size(16.dp)
                         )
@@ -635,6 +636,10 @@ private fun TripMapPhase(
     val cameraPositionState = rememberCameraPositionState()
     val coroutineScope = rememberCoroutineScope()
     val isPipMode = rememberPipMode()
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val context = LocalContext.current
+    val prefs = context.getSharedPreferences("somewhere_prefs", android.content.Context.MODE_PRIVATE)
+    var showTooltip by remember { mutableStateOf(prefs.getBoolean("show_wayfinder_tooltip", true)) }
 
     if (isPipMode) {
         Box(modifier = Modifier.fillMaxSize()) {
@@ -850,7 +855,7 @@ private fun TripMapPhase(
                     ) {
                         Icon(
                             Icons.Default.Timer,
-                            contentDescription = null,
+                            contentDescription = "Route Duration",
                             tint = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor,
                             modifier = Modifier.size(16.dp)
                         )
@@ -896,7 +901,7 @@ private fun TripMapPhase(
                     ) {
                         Icon(
                             Icons.Default.Place,
-                            contentDescription = null,
+                            contentDescription = "Drops Found on Route",
                             tint = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor,
                             modifier = Modifier.size(16.dp)
                         )
@@ -941,6 +946,44 @@ private fun TripMapPhase(
                     }
                 }
 
+                if (showTooltip && !uiState.isNavigating) {
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 32.dp, vertical = 8.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(SomewhereColors.Card.copy(alpha = 0.95f))
+                            .border(1.dp, SomewhereColors.CardBorder, RoundedCornerShape(8.dp))
+                            .padding(12.dp)
+                    ) {
+                        Column {
+                            Text(
+                                "Wayfinder Activated", 
+                                color = SomewhereColors.TextPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                "Hit 'Start Trip' and follow the compass ring around your location to find nearby drops on your route.",
+                                color = SomewhereColors.TextSecondary,
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                            Text(
+                                "Got it",
+                                color = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                modifier = Modifier
+                                    .padding(top = 8.dp)
+                                    .clickable {
+                                        showTooltip = false
+                                        prefs.edit().putBoolean("show_wayfinder_tooltip", false).apply()
+                                    }
+                            )
+                        }
+                    }
+                }
+
                 // Navigation button
                 Surface(
                     modifier = Modifier
@@ -952,7 +995,8 @@ private fun TripMapPhase(
                 ) {
                     Row(
                         modifier = Modifier
-                            .clickable {
+                            .clickable(role = androidx.compose.ui.semantics.Role.Button) {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                 if (uiState.isNavigating) onStopNavigation()
                                 else onStartNavigation()
                             }
@@ -963,7 +1007,7 @@ private fun TripMapPhase(
                         Icon(
                             if (uiState.isNavigating) Icons.Default.Stop
                             else Icons.Default.Navigation,
-                            contentDescription = null,
+                            contentDescription = if (uiState.isNavigating) "Stop Trip" else "Start Trip",
                             tint = if (uiState.isNavigating) Color.White else Color.Black,
                             modifier = Modifier.size(20.dp)
                         )
@@ -1032,7 +1076,7 @@ private fun NearbyDropItem(
             // Background image
             AsyncImage(
                 model = drop.imageUrl,
-                contentDescription = null,
+                contentDescription = "Drop Image",
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
@@ -1121,7 +1165,7 @@ private fun ApproachingDropAlert(
             // Drop image
             AsyncImage(
                 model = drop.imageUrl,
-                contentDescription = null,
+                contentDescription = "Approaching Drop Image",
                 modifier = Modifier
                     .size(56.dp)
                     .clip(RoundedCornerShape(8.dp)),

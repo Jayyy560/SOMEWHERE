@@ -8,7 +8,7 @@ import com.somewhere.app.data.local.DropDao
 import com.somewhere.app.data.repository.DropRepository
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
-import com.somewhere.app.data.remote.GemmaApiService
+import com.somewhere.app.data.remote.OpenRouterApiService
 import dagger.Module
 import dagger.Provides
 import okhttp3.OkHttpClient
@@ -82,12 +82,12 @@ object AppModule {
 
     @Provides
     @Singleton
-    fun provideGemmaApiService(okHttpClient: OkHttpClient): GemmaApiService {
+    fun provideOpenRouterApiService(okHttpClient: OkHttpClient): OpenRouterApiService {
         return Retrofit.Builder()
-            .baseUrl("http://192.168.1.4:5001") // The laptop's local WiFi IP
+            .baseUrl("https://openrouter.ai/")
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
-            .create(GemmaApiService::class.java)
+            .create(OpenRouterApiService::class.java)
     }
 }

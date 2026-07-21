@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -42,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.launch
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -49,6 +51,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import com.somewhere.app.ui.component.PermissionGate
 import com.somewhere.app.ui.component.DropDetailSheet
+import com.somewhere.app.ui.component.shimmerEffect
 import com.somewhere.app.ui.component.DropOverlayCard
 import com.somewhere.app.ui.component.PingPulse
 import com.somewhere.app.ui.component.TutorialOverlay
@@ -70,7 +73,9 @@ fun DiscoveryScreen(
     onFindSpot: (String) -> Unit = {},
     viewModel: DiscoveryViewModel = hiltViewModel()
 ) {
+    val view = LocalView.current
     val context = LocalContext.current
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val uiState by viewModel.uiState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -80,6 +85,9 @@ fun DiscoveryScreen(
     val screenWidthPx = with(density) { screenWidthDp.dp.toPx() }
     val ambient = com.somewhere.app.ui.theme.LocalAmbientColors.current
 
+    val hiddenDropIds = remember { androidx.compose.runtime.mutableStateListOf<String>() }
+    val visibleDrops = uiState.nearbyDrops.filter { it.drop.id !in hiddenDropIds }
+    
     // Text to Speech for Curator
     val tts = remember { mutableStateOf<TextToSpeech?>(null) }
     DisposableEffect(context) {
@@ -104,6 +112,8 @@ fun DiscoveryScreen(
             )
         }
     }
+
+    val scope = rememberCoroutineScope()
 
     // Entrance fade
     var visible by remember { mutableStateOf(false) }
@@ -244,8 +254,8 @@ fun DiscoveryScreen(
                                     com.somewhere.app.util.ARUtils.calibrateNorth(cameraPose, heading)
 
                                     val state = viewModel.uiState.value
-                                    if (state.hasLocation && state.nearbyDrops.isNotEmpty()) {
-                                        val drops = state.nearbyDrops.mapIndexed { index, item ->
+                                    if (state.hasLocation && visibleDrops.isNotEmpty()) {
+                                        val drops = visibleDrops.mapIndexed { index, item ->
                                             Pair(item.drop.id, Pair(item.drop.latitude, item.drop.longitude))
                                         }
                                         com.somewhere.app.util.ARUtils.recomputeAllPositions(
@@ -282,7 +292,7 @@ fun DiscoveryScreen(
                         val halfCardWidthPx = with(density) { 80.dp.toPx().toInt() }
                         val halfCardHeightPx = with(density) { 50.dp.toPx().toInt() }
 
-                        uiState.nearbyDrops.forEach { item ->
+                        visibleDrops.forEach { item ->
                             val worldPos = com.somewhere.app.util.ARUtils.getWorldPosition(item.drop.id)
                             if (worldPos != null) {
                                 val screenPos = com.somewhere.app.util.ARUtils.projectToScreen(
@@ -399,7 +409,7 @@ fun DiscoveryScreen(
                     )
                     
                     // Compass fallback overlay
-                    val drops = uiState.nearbyDrops
+                    val drops = visibleDrops
                     val zoneIndex = mutableMapOf<String, Int>()
 
                     drops.forEachIndexed { index, item ->
@@ -477,7 +487,7 @@ fun DiscoveryScreen(
                         contentPadding = PaddingValues(top = 100.dp, bottom = 120.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(uiState.nearbyDrops) { item ->
+                        items(visibleDrops) { item ->
                             DropOverlayCard(
                                 item = item,
                                 onTap = { if (item.isUnlocked) viewModel.selectDrop(item) },
@@ -488,7 +498,7 @@ fun DiscoveryScreen(
                 }
             }
             // Empty state — animated radar pulse
-            if (uiState.hasLocation && uiState.nearbyDrops.isEmpty() && !showListView) {
+            if (uiState.hasLocation && visibleDrops.isEmpty() && !showListView) {
                 RadarEmptyState(
                     modifier = Modifier.align(Alignment.Center)
                 )
@@ -579,9 +589,9 @@ fun DiscoveryScreen(
             }
 
             // Drop count badge
-            if (uiState.hasLocation && uiState.nearbyDrops.isNotEmpty()) {
-                val unlockedCount = uiState.nearbyDrops.count { it.isUnlocked }
-                val totalCount = uiState.nearbyDrops.size
+            if (uiState.hasLocation && visibleDrops.isNotEmpty()) {
+                val unlockedCount = visibleDrops.count { it.isUnlocked }
+                val totalCount = visibleDrops.size
 
                 Column(
                     modifier = Modifier
@@ -595,7 +605,10 @@ fun DiscoveryScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Button(
-                            onClick = { viewModel.summarizePlace() },
+                            onClick = { 
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                viewModel.summarizePlace() 
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = SomewhereColors.GlassBackground),
                             elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
                         ) {
@@ -605,7 +618,10 @@ fun DiscoveryScreen(
                         }
 
                         Button(
-                            onClick = { viewModel.curateDrop() },
+                            onClick = { 
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                viewModel.curateDrop() 
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = SomewhereColors.GlassBackground),
                             elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
                         ) {
@@ -659,13 +675,55 @@ fun DiscoveryScreen(
 
             // Detail overlay — shown when a drop is selected
             uiState.selectedDrop?.let { selected ->
+                androidx.activity.compose.BackHandler { viewModel.selectDrop(null) }
                 DropDetailSheet(
                     drop = selected.drop,
                     distanceMeters = selected.distanceMeters,
                     onDismiss = { viewModel.selectDrop(null) },
-                    onDelete = { viewModel.deleteDrop(selected) },
-                    onReport = { viewModel.reportDrop(selected) },
-                    onBlock = { selected.drop.authorName?.let { viewModel.blockUser(it) } },
+                    onDelete = {
+                        val dropId = selected.drop.id
+                        viewModel.selectDrop(null)
+                        hiddenDropIds.add(dropId)
+                        scope.launch {
+                            val result = snackbarHostState.showSnackbar("Drop deleted", actionLabel = "Undo", duration = androidx.compose.material3.SnackbarDuration.Short)
+                            if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                                hiddenDropIds.remove(dropId)
+                            } else {
+                                viewModel.deleteDrop(selected, showMessage = false)
+                                hiddenDropIds.remove(dropId)
+                            }
+                        }
+                    },
+                    onReport = {
+                        val dropId = selected.drop.id
+                        viewModel.selectDrop(null)
+                        hiddenDropIds.add(dropId)
+                        scope.launch {
+                            val result = snackbarHostState.showSnackbar("Drop reported", actionLabel = "Undo", duration = androidx.compose.material3.SnackbarDuration.Short)
+                            if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                                hiddenDropIds.remove(dropId)
+                            } else {
+                                viewModel.reportDrop(selected, showMessage = false)
+                                hiddenDropIds.remove(dropId)
+                            }
+                        }
+                    },
+                    onBlock = { 
+                        selected.drop.authorName?.let { authorName ->
+                            val dropId = selected.drop.id
+                            viewModel.selectDrop(null)
+                            hiddenDropIds.add(dropId)
+                            scope.launch {
+                                val result = snackbarHostState.showSnackbar("User blocked", actionLabel = "Undo", duration = androidx.compose.material3.SnackbarDuration.Short)
+                                if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                                    hiddenDropIds.remove(dropId)
+                                } else {
+                                    viewModel.blockUser(authorName, showMessage = false)
+                                    hiddenDropIds.remove(dropId)
+                                }
+                            }
+                        }
+                    },
                     onFindSpot = onFindSpot
                 )
             }
@@ -684,7 +742,11 @@ fun DiscoveryScreen(
                     },
                     text = {
                         if (uiState.isSummarizing) {
-                            CircularProgressIndicator(color = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor)
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Box(modifier = Modifier.fillMaxWidth().height(14.dp).clip(RoundedCornerShape(4.dp)).shimmerEffect())
+                                Box(modifier = Modifier.fillMaxWidth(0.8f).height(14.dp).clip(RoundedCornerShape(4.dp)).shimmerEffect())
+                                Box(modifier = Modifier.fillMaxWidth(0.9f).height(14.dp).clip(RoundedCornerShape(4.dp)).shimmerEffect())
+                            }
                         } else {
                             Text(uiState.summaryText ?: "", color = SomewhereColors.TextSecondary)
                         }
@@ -737,10 +799,7 @@ private fun CompassHud(
         ) {
             Text(
                 text = directionLabel,
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                ),
+                style = MaterialTheme.typography.labelMedium,
                 color = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
             )
             Text(

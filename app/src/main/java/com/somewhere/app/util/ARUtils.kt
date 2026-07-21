@@ -146,7 +146,10 @@ object ARUtils {
     fun getWorldPosition(dropId: String): FloatArray? {
         val anchor = dropAnchors[dropId] ?: return null
         // Allow PAUSED state so drops don't blink out when ARCore is readjusting
-        if (anchor.trackingState == com.google.ar.core.TrackingState.STOPPED) return null
+        if (anchor.trackingState == com.google.ar.core.TrackingState.STOPPED) {
+            dropAnchors.remove(dropId)
+            return null
+        }
         return anchor.pose.translation
     }
     

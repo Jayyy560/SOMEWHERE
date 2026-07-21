@@ -37,10 +37,10 @@ fun FloatingBottomNav(
     modifier: Modifier = Modifier
 ) {
     val tabs = listOf(
-        Icons.Default.DirectionsWalk,
-        Icons.Default.Home,
-        Icons.Default.Add,
-        Icons.Default.Person
+        Icons.Default.DirectionsWalk to "Trips",
+        Icons.Default.Home to "Discovery",
+        Icons.Default.Add to "Create Drop",
+        Icons.Default.Person to "Profile"
     )
 
     // Wavy tap animation state
@@ -84,10 +84,12 @@ fun FloatingBottomNav(
         contentAlignment = Alignment.CenterStart
     ) {
         // Sliding Jelly Indicator
-        val offsetDp = (-14).dp + ((pagerState.currentPage + pagerState.currentPageOffsetFraction) * 72).dp
         Box(
             modifier = Modifier
-                .offset(x = offsetDp)
+                .offset {
+                    val offsetDp = (-14).dp + ((pagerState.currentPage + pagerState.currentPageOffsetFraction) * 72).dp
+                    androidx.compose.ui.unit.IntOffset(x = offsetDp.roundToPx(), y = 0)
+                }
                 .height(56.dp)
                 .width(84.dp)
                 .clip(shape)
@@ -130,9 +132,10 @@ fun FloatingBottomNav(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            tabs.forEachIndexed { index, icon ->
+            tabs.forEachIndexed { index, (icon, desc) ->
                 BottomNavItem(
                     icon = icon,
+                    description = desc,
                     isSelected = pagerState.currentPage == index,
                     onClick = { onTabSelected(index) },
                     onLongClick = {
@@ -150,6 +153,7 @@ fun FloatingBottomNav(
 @Composable
 private fun BottomNavItem(
     icon: ImageVector,
+    description: String,
     isSelected: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit = {}
@@ -163,6 +167,7 @@ private fun BottomNavItem(
             .size(56.dp)
             .clip(androidx.compose.foundation.shape.RoundedCornerShape(percent = 50))
             .combinedClickable(
+                role = androidx.compose.ui.semantics.Role.Tab,
                 onClick = {
                     onClick()
                     coroutineScope.launch {
@@ -201,7 +206,7 @@ private fun BottomNavItem(
         // Icon
         Icon(
             imageVector = icon,
-            contentDescription = null,
+            contentDescription = description,
             tint = if (isSelected) Color.White else Color.White.copy(alpha = 0.5f),
             modifier = Modifier.graphicsLayer {
                 this.scaleX = scale.value

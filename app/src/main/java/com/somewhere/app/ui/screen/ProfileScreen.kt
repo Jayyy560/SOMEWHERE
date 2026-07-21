@@ -41,7 +41,11 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import com.somewhere.app.ui.component.SomewhereButton
 import androidx.compose.material.icons.Icons
+import androidx.compose.animation.togetherWith
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.LocationOn
@@ -53,11 +57,20 @@ fun ProfileScreen(
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val myDrops by viewModel.myDrops.collectAsState()
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val unlockedDrops by viewModel.unlockedDrops.collectAsState()
     val carriedDrops by viewModel.carriedDrops.collectAsState()
+    
+    val hiddenDropIds = remember { androidx.compose.runtime.mutableStateListOf<String>() }
+    val visibleMyDrops = myDrops.filter { it.id !in hiddenDropIds }
+    val visibleUnlockedDrops = unlockedDrops.filter { it.id !in hiddenDropIds }
+    val visibleCarriedDrops = carriedDrops.filter { it.id !in hiddenDropIds }
     var selectedDrop by remember { mutableStateOf<Drop?>(null) }
     var selectedTabIndex by remember { mutableStateOf(0) }
     var showSettingsMenu by remember { mutableStateOf(false) }
+
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
 
     LaunchedEffect(selectedTabIndex) {
         if (selectedTabIndex == 1) {
@@ -68,6 +81,9 @@ fun ProfileScreen(
     Scaffold(
         bottomBar = {
             // Reusing the simple text bottom nav for now, or just leave empty since it's handled by main
+        },
+        snackbarHost = {
+            androidx.compose.material3.SnackbarHost(snackbarHostState)
         },
         containerColor = SomewhereColors.Background,
         modifier = Modifier
@@ -175,7 +191,10 @@ fun ProfileScreen(
                 Spacer(modifier = Modifier.height(8.dp))
                 
                 androidx.compose.material3.OutlinedButton(
-                    onClick = { showEditProfile = true },
+                    onClick = { 
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        showEditProfile = true 
+                    },
                     modifier = Modifier.height(36.dp),
                     colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
                         contentColor = SomewhereColors.TextPrimary
@@ -194,18 +213,27 @@ fun ProfileScreen(
                 ) {
                     Tab(
                         selected = selectedTabIndex == 0,
-                        onClick = { selectedTabIndex = 0 },
+                        onClick = { 
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            selectedTabIndex = 0 
+                        },
                         text = { Text("My Drops (${myDrops.size})") }
                     )
                     Tab(
                         selected = selectedTabIndex == 1,
-                        onClick = { selectedTabIndex = 1 },
-                        text = { Text("Discovered (${unlockedDrops.size})") }
+                        onClick = { 
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            selectedTabIndex = 1 
+                        },
+                        text = { Text("Discovered (${visibleUnlockedDrops.size})") }
                     )
                     Tab(
                         selected = selectedTabIndex == 2,
-                        onClick = { selectedTabIndex = 2 },
-                        text = { Text("Backpack (${carriedDrops.size})") }
+                        onClick = { 
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            selectedTabIndex = 2 
+                        },
+                        text = { Text("Backpack (${visibleCarriedDrops.size})") }
                     )
                 }
             }
@@ -213,73 +241,114 @@ fun ProfileScreen(
             Spacer(modifier = Modifier.height(8.dp))
 
             // Grid
-            val currentList = when (selectedTabIndex) {
-                0 -> myDrops
-                1 -> unlockedDrops
-                else -> carriedDrops
-            }
             val isLoading by viewModel.isLoading.collectAsState()
 
-            if (isLoading) {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    items(12) {
-                        Box(
-                            modifier = Modifier
-                                .aspectRatio(1f)
-                                .clip(MaterialTheme.shapes.small)
-                                .shimmerEffect()
+            androidx.compose.animation.AnimatedContent(
+                targetState = selectedTabIndex,
+                transitionSpec = {
+                    if (targetState > initialState) {
+                        (androidx.compose.animation.slideInHorizontally { width -> width } + androidx.compose.animation.fadeIn())
+                        .togetherWith(androidx.compose.animation.slideOutHorizontally { width -> -width } + androidx.compose.animation.fadeOut())
+                    } else {
+                        (androidx.compose.animation.slideInHorizontally { width -> -width } + androidx.compose.animation.fadeIn())
+                        .togetherWith(androidx.compose.animation.slideOutHorizontally { width -> width } + androidx.compose.animation.fadeOut())
+                    }.using(androidx.compose.animation.SizeTransform(clip = false))
+                },
+                label = "tab_transition",
+                modifier = Modifier.fillMaxSize()
+            ) { targetIndex ->
+                val currentList = when (targetIndex) {
+                    0 -> visibleMyDrops
+                    1 -> visibleUnlockedDrops
+                    else -> visibleCarriedDrops
+                }
+
+                if (isLoading) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(3),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(2.dp),
+                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        items(12) {
+                            Box(
+                                modifier = Modifier
+                                    .aspectRatio(1f)
+                                    .clip(MaterialTheme.shapes.small)
+                                    .shimmerEffect()
+                            )
+                        }
+                    }
+                } else if (currentList.isEmpty()) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        val emptyIcon = when (targetIndex) {
+                            0 -> Icons.Default.LocationOn
+                            1 -> Icons.Default.LockOpen
+                            else -> Icons.Default.List
+                        }
+                        val emptyText = when (targetIndex) {
+                            0 -> "It's quiet here...\nBe the first to leave a mark!"
+                            1 -> "You haven't discovered any drops yet.\nGet out there and explore!"
+                            else -> "Your backpack is empty.\nPick up a Hitchhiker Drop!"
+                        }
+                        Icon(
+                            imageVector = emptyIcon,
+                            contentDescription = "Empty state icon",
+                            modifier = Modifier.size(64.dp),
+                            tint = SomewhereColors.TextMuted
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = emptyText,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = SomewhereColors.TextSecondary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        SomewhereButton(
+                            text = "Go to Map",
+                            onClick = onBack
                         )
                     }
-                }
-            } else if (currentList.isEmpty()) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    val emptyIcon = when (selectedTabIndex) {
-                        0 -> Icons.Default.LocationOn
-                        1 -> Icons.Default.LockOpen
-                        else -> Icons.Default.List
-                    }
-                    val emptyText = when (selectedTabIndex) {
-                        0 -> "It's quiet here...\nBe the first to leave a mark!"
-                        1 -> "You haven't discovered any drops yet.\nGet out there and explore!"
-                        else -> "Your backpack is empty.\nPick up a Hitchhiker Drop!"
-                    }
-                    Icon(
-                        imageVector = emptyIcon,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = SomewhereColors.TextMuted
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = emptyText,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = SomewhereColors.TextSecondary,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
-                }
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
-                ) {
-                    items(currentList) { drop ->
-                        ProfileGridItem(
-                            drop = drop,
-                            onClick = { selectedDrop = drop }
-                        )
+                } else {
+                    @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+                    androidx.compose.material3.pulltorefresh.PullToRefreshBox(
+                        isRefreshing = isLoading,
+                        onRefresh = { viewModel.refreshUnlockedDrops() },
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(3),
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(2.dp),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            items(currentList) { drop ->
+                                ProfileGridItem(
+                                    drop = drop,
+                                    onClick = { selectedDrop = drop },
+                                    onDelete = {
+                                        val dropId = drop.id
+                                        hiddenDropIds.add(dropId)
+                                        scope.launch {
+                                            val result = snackbarHostState.showSnackbar("Drop deleted", actionLabel = "Undo", duration = androidx.compose.material3.SnackbarDuration.Short)
+                                            if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                                                hiddenDropIds.remove(dropId)
+                                            } else {
+                                                viewModel.deleteDrop(drop)
+                                                hiddenDropIds.remove(dropId)
+                                            }
+                                        }
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -351,34 +420,93 @@ fun ProfileScreen(
                 drop = drop,
                 onDismiss = { selectedDrop = null },
                 onDelete = {
-                    viewModel.deleteDrop(drop)
+                    val dropId = drop.id
                     selectedDrop = null
+                    hiddenDropIds.add(dropId)
+                    scope.launch {
+                        val result = snackbarHostState.showSnackbar("Drop deleted", actionLabel = "Undo", duration = androidx.compose.material3.SnackbarDuration.Short)
+                        if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                            hiddenDropIds.remove(dropId)
+                        } else {
+                            viewModel.deleteDrop(drop)
+                            hiddenDropIds.remove(dropId)
+                        }
+                    }
                 },
                 onBlock = { 
-                    selectedDrop?.authorName?.let { viewModel.blockUser(it) }
-                    selectedDrop = null 
+                    drop.authorName?.let { authorName ->
+                        val dropId = drop.id
+                        selectedDrop = null
+                        hiddenDropIds.add(dropId)
+                        scope.launch {
+                            val result = snackbarHostState.showSnackbar("User blocked", actionLabel = "Undo", duration = androidx.compose.material3.SnackbarDuration.Short)
+                            if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                                hiddenDropIds.remove(dropId)
+                            } else {
+                                viewModel.blockUser(authorName)
+                                hiddenDropIds.remove(dropId)
+                            }
+                        }
+                    }
                 },
                 onReport = {
+                    val dropId = drop.id
                     selectedDrop = null
+                    hiddenDropIds.add(dropId)
+                    scope.launch {
+                        val result = snackbarHostState.showSnackbar("Drop reported", actionLabel = "Undo", duration = androidx.compose.material3.SnackbarDuration.Short)
+                        if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
+                            hiddenDropIds.remove(dropId)
+                        } else {
+                            // No report action in ProfileViewModel currently, but just hide it
+                            hiddenDropIds.remove(dropId)
+                        }
+                    }
                 }
             )
         }
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun ProfileGridItem(drop: Drop, onClick: () -> Unit) {
+fun ProfileGridItem(drop: Drop, onClick: () -> Unit, onDelete: () -> Unit) {
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    var showMenu by remember { mutableStateOf(false) }
+
     Box(
         modifier = Modifier
             .aspectRatio(1f)
             .background(SomewhereColors.Card)
-            .clickable(onClick = onClick)
+            .combinedClickable(
+                onClick = {
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                    onClick()
+                },
+                onLongClick = {
+                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    showMenu = true
+                }
+            )
     ) {
-        AsyncImage(
+        coil.compose.AsyncImage(
             model = drop.imageUrl,
             contentDescription = "Drop photo",
             modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop
         )
+
+        androidx.compose.material3.DropdownMenu(
+            expanded = showMenu,
+            onDismissRequest = { showMenu = false }
+        ) {
+            androidx.compose.material3.DropdownMenuItem(
+                text = { Text("Delete", color = SomewhereColors.Error) },
+                onClick = {
+                    showMenu = false
+                    onDelete()
+                }
+            )
+        }
     }
 }

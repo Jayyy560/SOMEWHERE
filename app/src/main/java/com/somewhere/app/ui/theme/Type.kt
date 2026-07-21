@@ -60,5 +60,26 @@ val SomewhereTypography = Typography(
         fontSize = 11.sp,
         letterSpacing = 2.sp,
         color = SomewhereColors.TextMuted
+    ),
+    // Bold labels for directions / metrics
+    labelMedium = TextStyle(
+        fontWeight = FontWeight.Bold,
+        fontSize = 12.sp,
+        letterSpacing = 1.sp,
+        color = SomewhereColors.TextPrimary
+    ),
+    // Standard bold titles
+    titleLarge = TextStyle(
+        fontWeight = FontWeight.Bold,
+        fontSize = 22.sp,
+        letterSpacing = 0.sp,
+        color = SomewhereColors.TextPrimary
+    ),
+    // Emphasized body text
+    bodyMedium = TextStyle(
+        fontWeight = FontWeight.SemiBold,
+        fontSize = 14.sp,
+        letterSpacing = 0.5.sp,
+        color = SomewhereColors.TextPrimary
     )
 )

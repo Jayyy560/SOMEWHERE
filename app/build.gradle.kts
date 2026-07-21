@@ -49,6 +49,11 @@ android {
             "COLAB_AI_URL",
             "\"${localProperties.getProperty("COLAB_AI_URL") ?: ""}\""
         )
+        buildConfigField(
+            "String",
+            "OPENROUTER_API_KEY",
+            "\"${localProperties.getProperty("OPENROUTER_API_KEY") ?: ""}\""
+        )
         
         manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = localProperties.getProperty("GOOGLE_MAPS_API_KEY") ?: ""
     }

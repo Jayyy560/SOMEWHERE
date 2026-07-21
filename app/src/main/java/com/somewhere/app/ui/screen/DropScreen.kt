@@ -302,6 +302,7 @@ fun DropScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .imePadding()
                 // Do not apply background color so the camera shines through
                 .alpha(contentAlpha)
                 .pointerInput(Unit) {
@@ -779,7 +780,7 @@ fun DropScreen(
                                     text = "Release as a Hitchhiker",
                                     style = MaterialTheme.typography.bodyLarge.copy(
                                         fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                                        color = Color(0xFFE0B0FF)
+                                        color = SomewhereColors.AccentPurple
                                     )
                                 )
                                 Text(
@@ -793,7 +794,7 @@ fun DropScreen(
                                     style = MaterialTheme.typography.labelSmall.copy(
                                         fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
                                     ),
-                                    color = Color(0xAAFFFFFF)
+                                    color = SomewhereColors.TextSecondary
                                 )
                             }
                             androidx.compose.material3.Switch(
@@ -1112,7 +1113,7 @@ fun HitchhikerToggleBox(
             .fillMaxWidth()
             .padding(vertical = 8.dp)
             .clip(RoundedCornerShape(12.dp))
-            .clickable { onToggle(!isHitchhiker) }
+            .clickable(role = androidx.compose.ui.semantics.Role.Switch) { onToggle(!isHitchhiker) }
             .then(
                 if (isHitchhiker) {
                     Modifier
@@ -1136,7 +1137,7 @@ fun HitchhikerToggleBox(
                                 val alpha = (Math.sin(time * 0.05 + i).toFloat() * 0.5f + 0.5f) * 0.6f
                                 
                                 drawCircle(
-                                    color = Color(0xFFE0B0FF).copy(alpha = alpha),
+                                    color = SomewhereColors.AccentPurple.copy(alpha = alpha),
                                     radius = pSize,
                                     center = androidx.compose.ui.geometry.Offset(startX, y)
                                 )
@@ -1144,7 +1145,7 @@ fun HitchhikerToggleBox(
                         }
                         .border(
                             width = 1.dp,
-                            color = Color(0xFFE0B0FF).copy(alpha = 0.5f + colorPhase * 0.5f),
+                            color = SomewhereColors.AccentPurple.copy(alpha = 0.5f + colorPhase * 0.5f),
                             shape = RoundedCornerShape(12.dp)
                         )
                         .background(Color(0xFF6A0DAD).copy(alpha = 0.1f))
@@ -1202,7 +1203,7 @@ fun ReleaseAnimationOverlay(onComplete: () -> Unit) {
         androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
             if (pinY.value < 0f) {
                 drawLine(
-                    color = Color(0xFFE0B0FF),
+                    color = SomewhereColors.AccentPurple,
                     start = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f),
                     end = androidx.compose.ui.geometry.Offset(size.width / 2f, size.height / 2f + pinY.value),
                     strokeWidth = 10f * pinScale.value,
@@ -1216,8 +1217,8 @@ fun ReleaseAnimationOverlay(onComplete: () -> Unit) {
         if (pinScale.value > 0f) {
             Icon(
                 imageVector = Icons.Default.LocationOn,
-                contentDescription = null,
-                tint = Color(0xFFE0B0FF),
+                contentDescription = "Drop Released Pin",
+                tint = SomewhereColors.AccentPurple,
                 modifier = Modifier
                     .size(64.dp)
                     .graphicsLayer {

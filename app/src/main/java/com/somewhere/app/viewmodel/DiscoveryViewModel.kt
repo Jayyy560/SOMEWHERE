@@ -209,34 +209,34 @@ class DiscoveryViewModel @Inject constructor(
         _uiState.update { it.copy(message = null) }
     }
 
-    fun deleteDrop(item: DiscoveredDrop) {
+    fun deleteDrop(item: DiscoveredDrop, showMessage: Boolean = false) {
         viewModelScope.launch {
             repository.deleteDrop(item.drop)
             _uiState.update { it.copy(
                 selectedDrop = null,
-                message = "Drop deleted"
+                message = if (showMessage) "Drop deleted" else null
             ) }
             fetchNearbyDrops(_uiState.value.userLat, _uiState.value.userLon)
         }
     }
 
-    fun reportDrop(item: DiscoveredDrop) {
+    fun reportDrop(item: DiscoveredDrop, showMessage: Boolean = false) {
         viewModelScope.launch {
             repository.reportDrop(item.drop.id)
             _uiState.update { it.copy(
                 selectedDrop = null,
-                message = "Drop reported. It will no longer be visible to you."
+                message = if (showMessage) "Drop reported. It will no longer be visible to you." else null
             ) }
             fetchNearbyDrops(_uiState.value.userLat, _uiState.value.userLon)
         }
     }
 
-    fun blockUser(authorName: String) {
+    fun blockUser(authorName: String, showMessage: Boolean = false) {
         viewModelScope.launch {
             repository.blockUser(authorName)
             _uiState.update { it.copy(
                 selectedDrop = null,
-                message = "User blocked. Their drops will be hidden."
+                message = if (showMessage) "User blocked. Their drops will be hidden." else null
             ) }
             fetchNearbyDrops(_uiState.value.userLat, _uiState.value.userLon)
         }

@@ -168,7 +168,7 @@ class DropRepository(
         val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return
         runCatching {
             val remoteDrops = SupabaseManager.client.postgrest["drops"]
-                .select { filter { eq("user_id", currentUser.id) } }
+                .select { filter { eq("author_id", currentUser.id) } }
                 .decodeList<NearbyDrop>()
 
             val drops = remoteDrops.map { remote ->
