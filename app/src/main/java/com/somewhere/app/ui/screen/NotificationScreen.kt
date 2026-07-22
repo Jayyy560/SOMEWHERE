@@ -5,28 +5,34 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.NotificationsNone
+import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.PersonOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.activity.ComponentActivity
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.viewmodel.UserViewModel
 import com.somewhere.app.viewmodel.NotificationItem
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import androidx.compose.foundation.combinedClickable
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,72 +41,66 @@ fun NotificationScreen(
 ) {
     val activity = LocalContext.current as ComponentActivity
     val userViewModel: UserViewModel = hiltViewModel(activity)
-    
     val notifications by userViewModel.notifications.collectAsState()
-    
+    val scope = rememberCoroutineScope()
+    val haptic = LocalHapticFeedback.current
+
     LaunchedEffect(Unit) {
         userViewModel.markNotificationsAsSeen()
     }
-    
-    var showClearConfirmDialog by remember { mutableStateOf<NotificationItem?>(null) }
+
     var isRefreshing by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Notifications", color = SomewhereColors.TextPrimary) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = SomewhereColors.TextPrimary)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = SomewhereColors.Background)
-            )
-        },
-        containerColor = SomewhereColors.Background,
-        modifier = Modifier.fillMaxSize().systemBarsPadding()
-    ) { innerPadding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 16.dp)
-        ) {
-
-            if (notifications.isEmpty()) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(SomewhereColors.Background)
+            .systemBarsPadding()
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // ── Minimal Top Bar ──
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 24.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onBack()
+                    },
+                    modifier = Modifier.size(24.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Notifications,
-                        contentDescription = "No notifications",
-                        modifier = Modifier.size(64.dp),
-                        tint = SomewhereColors.TextMuted
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "You're all caught up.\nNo new notifications.",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = SomewhereColors.TextSecondary,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    com.somewhere.app.ui.component.SomewhereButton(
-                        text = "Back to map",
-                        onClick = onBack
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = SomewhereColors.TextPrimary
                     )
                 }
+                Spacer(modifier = Modifier.width(24.dp))
+                Text(
+                    text = "NOTIFICATIONS",
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        letterSpacing = 2.sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = SomewhereColors.TextPrimary
+                )
+            }
+
+            // ── Content ──
+            if (notifications.isEmpty()) {
+                NotificationEmptyState(modifier = Modifier.fillMaxSize())
             } else {
                 androidx.compose.material3.pulltorefresh.PullToRefreshBox(
                     isRefreshing = isRefreshing,
-                    onRefresh = { 
+                    onRefresh = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         isRefreshing = true
                         userViewModel.loadNotifications()
                         scope.launch {
-                            kotlinx.coroutines.delay(800)
+                            delay(800)
                             isRefreshing = false
                         }
                     },
@@ -108,12 +108,15 @@ fun NotificationScreen(
                 ) {
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        contentPadding = PaddingValues(top = 8.dp, bottom = 48.dp)
                     ) {
-                        items(notifications) { notif ->
-                            NotificationCard(
+                        items(
+                            items = notifications,
+                            key = { it.id }
+                        ) { notif ->
+                            NotificationRow(
                                 notification = notif,
-                                onClearRequest = { showClearConfirmDialog = notif }
+                                onDelete = { userViewModel.removeNotification(notif.id) }
                             )
                         }
                     }
@@ -121,118 +124,115 @@ fun NotificationScreen(
             }
         }
     }
+}
 
-    showClearConfirmDialog?.let { notif ->
-        AlertDialog(
-            onDismissRequest = { showClearConfirmDialog = null },
-            title = { Text("Clear Notification") },
-            text = { Text("Are you sure you want to clear this notification?") },
-            confirmButton = {
-                TextButton(onClick = {
-                    userViewModel.removeNotification(notif.id)
-                    showClearConfirmDialog = null
-                }) {
-                    Text("Clear", color = SomewhereColors.Error)
+@Composable
+private fun NotificationRow(
+    notification: NotificationItem,
+    onDelete: () -> Unit
+) {
+    val haptic = LocalHapticFeedback.current
+    var showOptions by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    showOptions = !showOptions
                 }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearConfirmDialog = null }) {
-                    Text("Cancel", color = SomewhereColors.TextPrimary)
+                .padding(horizontal = 24.dp, vertical = 20.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Icon(
+                imageVector = resolveMinimalIcon(notification),
+                contentDescription = null,
+                tint = SomewhereColors.TextPrimary,
+                modifier = Modifier.size(20.dp).padding(top = 2.dp)
+            )
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = notification.title,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = SomewhereColors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = notification.message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SomewhereColors.TextSecondary,
+                    lineHeight = 18.sp
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = notification.time.uppercase(),
+                    style = MaterialTheme.typography.labelSmall.copy(letterSpacing = 1.sp),
+                    color = SomewhereColors.TextMuted
+                )
+                
+                if (showOptions) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "DELETE",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        ),
+                        color = SomewhereColors.Error,
+                        modifier = Modifier
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onDelete()
+                            }
+                            .padding(vertical = 8.dp, horizontal = 4.dp)
+                    )
                 }
-            },
-            containerColor = SomewhereColors.Card,
-            titleContentColor = SomewhereColors.TextPrimary,
-            textContentColor = SomewhereColors.TextSecondary
+            }
+        }
+        
+        // Minimal divider
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .height(0.5.dp)
+                .background(SomewhereColors.CardBorder)
         )
     }
 }
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun NotificationCard(
-    notification: NotificationItem,
-    onClearRequest: () -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(SomewhereColors.Card)
-            .combinedClickable(
-                onClick = {},
-                onLongClick = {
-                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                    expanded = true
-                }
-            )
-            .padding(16.dp),
-        verticalAlignment = Alignment.Top
+private fun NotificationEmptyState(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.padding(bottom = 64.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
-        Box(
-            modifier = Modifier
-                .size(40.dp)
-                .clip(CircleShape)
-                .background(SomewhereColors.AccentPurple.copy(alpha = 0.2f)),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                imageVector = Icons.Default.Notifications,
-                contentDescription = "Notification Icon",
-                tint = SomewhereColors.AccentPurple,
-                modifier = Modifier.size(20.dp)
-            )
-        }
+        Text(
+            text = "NO NOTIFICATIONS",
+            style = MaterialTheme.typography.labelLarge.copy(
+                letterSpacing = 2.sp,
+                fontWeight = FontWeight.Bold
+            ),
+            color = SomewhereColors.TextMuted
+        )
+    }
+}
 
-        Spacer(modifier = Modifier.width(12.dp))
-
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = notification.title,
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = SomewhereColors.TextPrimary
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = notification.message,
-                style = MaterialTheme.typography.bodyMedium,
-                color = SomewhereColors.TextSecondary
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = notification.time,
-                style = MaterialTheme.typography.labelSmall,
-                color = SomewhereColors.TextMuted
-            )
-        }
-
-        Box {
-            IconButton(
-                onClick = { expanded = true },
-                modifier = Modifier.size(24.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = "More options",
-                    tint = SomewhereColors.TextSecondary
-                )
-            }
-            
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false },
-                containerColor = SomewhereColors.Surface
-            ) {
-                DropdownMenuItem(
-                    text = { Text("Clear Notification", color = SomewhereColors.Error) },
-                    onClick = {
-                        expanded = false
-                        onClearRequest()
-                    }
-                )
-            }
-        }
+private fun resolveMinimalIcon(notification: NotificationItem): ImageVector {
+    val titleLower = notification.title.lowercase()
+    val msgLower = notification.message.lowercase()
+    return when {
+        titleLower.contains("like") || msgLower.contains("like") -> Icons.Default.FavoriteBorder
+        titleLower.contains("comment") || msgLower.contains("comment") -> Icons.Default.ChatBubbleOutline
+        titleLower.contains("follow") || msgLower.contains("follow") -> Icons.Default.PersonOutline
+        titleLower.contains("nearby") || msgLower.contains("discover") -> Icons.Default.LocationOn
+        else -> Icons.Default.NotificationsNone
     }
 }

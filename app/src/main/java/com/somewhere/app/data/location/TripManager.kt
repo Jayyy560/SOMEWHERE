@@ -1,4 +1,4 @@
-package com.somewhere.app.data.location
+    package com.somewhere.app.data.location
 
 import android.content.Context
 import com.google.android.gms.maps.model.LatLng
