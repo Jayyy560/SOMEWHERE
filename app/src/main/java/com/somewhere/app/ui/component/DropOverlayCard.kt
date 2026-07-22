@@ -96,9 +96,11 @@ fun DropOverlayCard(
     val cardScale = if (item.isPrimary) 1f else 0.85f
     val baseAlpha = if (item.isPrimary) 1f else 0.75f
 
+    // Single shared infinite transition for all card animations
+    val infiniteTransition = rememberInfiniteTransition(label = "cardAnim")
+
     // Locked shimmer — subtle breathing animation
     val shimmerAlpha by if (!item.isUnlocked) {
-        val infiniteTransition = rememberInfiniteTransition(label = "shimmer")
         infiniteTransition.animateFloat(
             initialValue = 0.5f,
             targetValue = 0.8f,
@@ -114,7 +116,6 @@ fun DropOverlayCard(
 
     // Unlocked glow pulse
     val glowAlpha by if (item.isUnlocked) {
-        val infiniteTransition = rememberInfiniteTransition(label = "glow")
         infiniteTransition.animateFloat(
             initialValue = 0.3f,
             targetValue = 0.7f,
@@ -127,45 +128,17 @@ fun DropOverlayCard(
     } else {
         remember { mutableFloatStateOf(0f) }
     }
-
     Box(
         modifier = modifier
             .scale(cardScale * scaleIn * unlockScaleAnim)
             .alpha(alphaIn * baseAlpha * shimmerAlpha),
         contentAlignment = Alignment.Center
     ) {
-
-        // Wavy animated shape
-        val infiniteTransition = rememberInfiniteTransition(label = "wave")
-        val waveProgress by infiniteTransition.animateFloat(
-            initialValue = 0f, 
-            targetValue = (2 * kotlin.math.PI).toFloat(),
-            animationSpec = infiniteRepeatable(
-                animation = tween(4000, easing = LinearEasing), 
-                repeatMode = RepeatMode.Restart
-            ),
-            label = "wave"
-        )
-        val bubblyShape = WavyPillShape(waveProgress, 1.2f)
-
-        // Gentle breathing animation for the entire card to make left/right sides look alive
-        val scaleX by infiniteTransition.animateFloat(
-            initialValue = 0.98f, targetValue = 1.02f,
-            animationSpec = infiniteRepeatable(tween(2500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-            label = "breatheX"
-        )
-        val scaleY by infiniteTransition.animateFloat(
-            initialValue = 1.02f, targetValue = 0.98f,
-            animationSpec = infiniteRepeatable(tween(2500, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-            label = "breatheY"
-        )
+        // Use a static rounded shape instead of per-frame WavyPillShape recalculation
+        val bubblyShape = RoundedCornerShape(20.dp)
 
         // Main card body
         Row(
-            modifier = Modifier.graphicsLayer {
-                this.scaleX = scaleX
-                this.scaleY = scaleY
-            },
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

@@ -74,6 +74,7 @@ class DiscoveryViewModel @Inject constructor(
     private var compassInitialized = false
     private var realtimeStarted = false
     private var isArCoreTracking = false
+    private var lastSensorUpdateNanos = 0L
 
     private val sensorListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
@@ -109,7 +110,12 @@ class DiscoveryViewModel @Inject constructor(
                     currentHeading %= 360f
                 }
 
-                updateOverlayPositions()
+                // Throttle overlay updates to ~30Hz
+                val now = System.nanoTime()
+                if (now - lastSensorUpdateNanos > 33_000_000L) {
+                    lastSensorUpdateNanos = now
+                    updateOverlayPositions()
+                }
             }
         }
 

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
@@ -61,6 +62,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -147,9 +149,9 @@ fun DropDetailSheet(
         label = "ls"
     )
     val scaleAnim by animateFloatAsState(
-        targetValue = if (expanded) 1f else 0.9f,
+        targetValue = if (expanded) 1f else 0.5f,
         animationSpec = if (reduceMotion) tween(0)
-        else spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow),
+        else spring(dampingRatio = 0.65f, stiffness = Spring.StiffnessLow),
         label = "s"
     )
     val alphaAnim by animateFloatAsState(
@@ -216,8 +218,22 @@ fun DropDetailSheet(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
+                .clip(RoundedCornerShape(24.dp))
+                .background(GlassPanelBg, RoundedCornerShape(24.dp))
+                .border(1.dp, SomewhereColors.GlassBorder, RoundedCornerShape(24.dp))
         ) {
+            // Drag Handle (Floating on top of image)
+            Box(
+                modifier = Modifier
+                    .padding(top = 12.dp)
+                    .width(40.dp)
+                    .height(4.dp)
+                    .clip(CircleShape)
+                    .background(SomewhereColors.TextMuted.copy(alpha = 0.5f))
+                    .align(Alignment.TopCenter)
+                    .zIndex(1f)
+            )
+
             // Layer 1: Full image
             Column(
                 Modifier

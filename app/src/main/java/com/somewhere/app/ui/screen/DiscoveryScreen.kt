@@ -27,7 +27,9 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -87,7 +89,9 @@ fun DiscoveryScreen(
     val ambient = com.somewhere.app.ui.theme.LocalAmbientColors.current
 
     val hiddenDropIds = remember { androidx.compose.runtime.mutableStateListOf<String>() }
-    val visibleDrops = uiState.nearbyDrops.filter { it.drop.id !in hiddenDropIds }
+    val visibleDrops by remember(uiState.nearbyDrops, hiddenDropIds) {
+        derivedStateOf { uiState.nearbyDrops.filter { it.drop.id !in hiddenDropIds } }
+    }
     
     // Text to Speech for Curator
     val tts = remember { mutableStateOf<TextToSpeech?>(null) }
@@ -168,7 +172,16 @@ fun DiscoveryScreen(
                 .background(SomewhereColors.Background)
                 .alpha(contentAlpha)
         ) {
-            var showListView by remember { mutableStateOf(false) }
+            val blurRadius by animateDpAsState(
+                targetValue = if (uiState.selectedDrop != null) 16.dp else 0.dp,
+                label = "glassBlur"
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(if (blurRadius > 0.dp) Modifier.blur(blurRadius) else Modifier)
+            ) {
+                var showListView by remember { mutableStateOf(false) }
 
             // Fullscreen camera preview
             var arCoreSupported by remember { mutableStateOf<Boolean?>(null) }
@@ -230,6 +243,7 @@ fun DiscoveryScreen(
 
             if (!showListView) {
                 if (arCoreSupported == true) {
+                    var lastFrameUpdate = 0L
                     AndroidView(
                         modifier = Modifier.fillMaxSize(),
                         factory = { ctx ->
@@ -268,16 +282,20 @@ fun DiscoveryScreen(
                                     }
 
                                     // Extract matrices for 2.5D projection
-                                    // IMPORTANT: Create new array copies so Compose detects the state change
-                                    val vMatrix = FloatArray(16)
-                                    frame.camera.getViewMatrix(vMatrix, 0)
-                                    viewMatrix = vMatrix.copyOf()
-                                    
-                                    val pMatrix = FloatArray(16)
-                                    frame.camera.getProjectionMatrix(pMatrix, 0, 0.1f, 100f)
-                                    projMatrix = pMatrix.copyOf()
-                                    
-                                    cameraPos = cameraPose.translation.copyOf()
+                                    // Throttle Compose state updates to ~30fps to avoid 60x/sec recomposition
+                                    val now = System.nanoTime()
+                                    if (now - lastFrameUpdate > 33_000_000L) { // ~30fps
+                                        lastFrameUpdate = now
+                                        val vMatrix = FloatArray(16)
+                                        frame.camera.getViewMatrix(vMatrix, 0)
+                                        viewMatrix = vMatrix.copyOf()
+                                        
+                                        val pMatrix = FloatArray(16)
+                                        frame.camera.getProjectionMatrix(pMatrix, 0, 0.1f, 100f)
+                                        projMatrix = pMatrix.copyOf()
+                                        
+                                        cameraPos = cameraPose.translation.copyOf()
+                                    }
                                 }
                             }
                         }
@@ -294,12 +312,12 @@ fun DiscoveryScreen(
                             if (item.drop.id in hiddenDropIds) return@forEach
 
                             val worldPos = com.somewhere.app.util.ARUtils.getWorldPosition(item.drop.id)
-                            android.util.Log.e("AR_DEBUG", "Drop ${item.drop.id.take(5)}: worldPos=${worldPos?.contentToString()}")
+
                             if (worldPos != null) {
                                 val screenPos = com.somewhere.app.util.ARUtils.projectToScreen(
                                     worldPos, currentViewMatrix, currentProjMatrix, screenWidthPx, screenHeightPx
                                 )
-                                android.util.Log.e("AR_DEBUG", "Drop ${item.drop.id.take(5)}: screenPos=$screenPos, distanceAlpha...")
+
                                 if (screenPos != null) {
                                     val dx = cameraPos[0] - worldPos[0]
                                     val dy = cameraPos[1] - worldPos[1]
@@ -679,6 +697,7 @@ fun DiscoveryScreen(
                 hostState = snackbarHostState,
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
+            }
 
             // Detail overlay — shown when a drop is selected
             uiState.selectedDrop?.let { selected ->
