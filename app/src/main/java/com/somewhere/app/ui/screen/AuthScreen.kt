@@ -4,6 +4,7 @@ import androidx.compose.animation.core.EaseOutCubic
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -55,6 +56,7 @@ fun AuthScreen(
     val ambient = com.somewhere.app.ui.theme.LocalAmbientColors.current
     var visible by remember { mutableStateOf(false) }
     var passwordVisible by remember { mutableStateOf(false) }
+    var isAgreed by remember { mutableStateOf(false) }
     val reduceMotion = rememberReduceMotionEnabled()
     val contentAlpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0f,
@@ -71,6 +73,7 @@ fun AuthScreen(
             .background(SomewhereColors.Background)
             .systemBarsPadding()
             .imePadding()
+            .verticalScroll(androidx.compose.foundation.rememberScrollState())
             .padding(24.dp)
             .alpha(contentAlpha),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -140,7 +143,9 @@ fun AuthScreen(
             keyboardActions = KeyboardActions(
                 onDone = { 
                     focusManager.clearFocus()
-                    viewModel.submit() 
+                    if (uiState.mode == AuthViewModel.Mode.SIGN_IN || isAgreed) {
+                        viewModel.submit()
+                    }
                 }
             ),
             modifier = Modifier.fillMaxWidth()
@@ -184,70 +189,76 @@ fun AuthScreen(
 
         Spacer(Modifier.height(20.dp))
 
-        var isAgreed by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-        var activeLegalDoc by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
-
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            androidx.compose.material3.Checkbox(
-                checked = isAgreed,
-                onCheckedChange = { isAgreed = it },
-                colors = androidx.compose.material3.CheckboxDefaults.colors(
-                    checkedColor = ambient.pulseColor,
-                    uncheckedColor = SomewhereColors.TextMuted
+        if (uiState.mode == AuthViewModel.Mode.SIGN_UP) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                androidx.compose.material3.Checkbox(
+                    checked = isAgreed,
+                    onCheckedChange = { isAgreed = it },
+                    colors = androidx.compose.material3.CheckboxDefaults.colors(
+                        checkedColor = ambient.pulseColor,
+                        uncheckedColor = SomewhereColors.TextMuted
+                    )
                 )
-            )
             
-            val annotatedString = androidx.compose.ui.text.buildAnnotatedString {
-                append("I agree to the ")
-                pushStringAnnotation("TOS", "Terms of Service")
-                withStyle(androidx.compose.ui.text.SpanStyle(color = ambient.pulseColor, fontWeight = FontWeight.Bold)) {
-                    append("Terms of Service")
+                val annotatedString = androidx.compose.ui.text.buildAnnotatedString {
+                    append("I agree to the ")
+                    pushStringAnnotation("TOS", "Terms of Service")
+                    withStyle(androidx.compose.ui.text.SpanStyle(color = ambient.pulseColor, fontWeight = FontWeight.Bold)) {
+                        append("Terms of Service")
+                    }
+                    pop()
+                    append(", ")
+                    pushStringAnnotation("PRIVACY", "Privacy Policy")
+                    withStyle(androidx.compose.ui.text.SpanStyle(color = ambient.pulseColor, fontWeight = FontWeight.Bold)) {
+                        append("Privacy Policy")
+                    }
+                    pop()
+                    append(", and ")
+                    pushStringAnnotation("COMMUNITY", "Community Guidelines")
+                    withStyle(androidx.compose.ui.text.SpanStyle(color = ambient.pulseColor, fontWeight = FontWeight.Bold)) {
+                        append("Community Guidelines")
+                    }
+                    pop()
+                    append(".")
                 }
-                pop()
-                append(", ")
-                pushStringAnnotation("PRIVACY", "Privacy Policy")
-                withStyle(androidx.compose.ui.text.SpanStyle(color = ambient.pulseColor, fontWeight = FontWeight.Bold)) {
-                    append("Privacy Policy")
-                }
-                pop()
-                append(", and ")
-                pushStringAnnotation("COMMUNITY", "Community Guidelines")
-                withStyle(androidx.compose.ui.text.SpanStyle(color = ambient.pulseColor, fontWeight = FontWeight.Bold)) {
-                    append("Community Guidelines")
-                }
-                pop()
-                append(".")
-            }
 
-            val context = LocalContext.current
-            val openLegalUrl = {
-                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://somewhere-privacy-policy.vercel.app/"))
-                context.startActivity(intent)
-            }
+                val context = LocalContext.current
+                val openLegalUrl = {
+                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://somewhere-privacy-policy.vercel.app/"))
+                    context.startActivity(intent)
+                }
 
-            androidx.compose.foundation.text.ClickableText(
-                text = annotatedString,
-                onClick = { offset ->
-                    annotatedString.getStringAnnotations("TOS", offset, offset).firstOrNull()?.let { openLegalUrl() }
-                    annotatedString.getStringAnnotations("PRIVACY", offset, offset).firstOrNull()?.let { openLegalUrl() }
-                    annotatedString.getStringAnnotations("COMMUNITY", offset, offset).firstOrNull()?.let { openLegalUrl() }
-                },
-                style = MaterialTheme.typography.bodySmall.copy(
-                    color = SomewhereColors.TextSecondary,
-                    textAlign = TextAlign.Center
+                androidx.compose.foundation.text.ClickableText(
+                    text = annotatedString,
+                    onClick = { offset ->
+                        annotatedString.getStringAnnotations("TOS", offset, offset).firstOrNull()?.let { openLegalUrl() }
+                        annotatedString.getStringAnnotations("PRIVACY", offset, offset).firstOrNull()?.let { openLegalUrl() }
+                        annotatedString.getStringAnnotations("COMMUNITY", offset, offset).firstOrNull()?.let { openLegalUrl() }
+                    },
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = SomewhereColors.TextSecondary,
+                        textAlign = TextAlign.Center
+                    )
                 )
-            )
+            }
         }
 
         Spacer(Modifier.height(16.dp))
 
         SomewhereButton(
-            text = if (uiState.mode == AuthViewModel.Mode.SIGN_IN) "Sign in" else "Sign up",
+            text = if (uiState.isLoading) {
+                if (uiState.mode == AuthViewModel.Mode.SIGN_IN) "Signing in..." else "Signing up..."
+            } else if (uiState.mode == AuthViewModel.Mode.SIGN_IN) {
+                "Sign in"
+            } else {
+                "Sign up"
+            },
             onClick = viewModel::submit,
-            enabled = !uiState.isLoading && isAgreed,
+            enabled = !uiState.isLoading &&
+                (uiState.mode == AuthViewModel.Mode.SIGN_IN || isAgreed),
             modifier = Modifier.fillMaxWidth()
         )
 

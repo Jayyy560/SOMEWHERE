@@ -1,6 +1,7 @@
 package com.somewhere.app.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -20,6 +21,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.somewhere.app.BuildConfig
 import com.somewhere.app.ui.component.SomewhereButton
+import com.somewhere.app.ui.component.SomewhereTopAppBar
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.util.SettingsUtils
 import com.somewhere.app.viewmodel.SettingsViewModel
@@ -45,6 +47,9 @@ fun SettingsScreen(
     var showBlockedUsers by remember { mutableStateOf(false) }
 
     Scaffold(
+        topBar = {
+            SomewhereTopAppBar(title = "Settings", onBack = onBack)
+        },
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = SomewhereColors.Background
     ) { padding ->
@@ -53,15 +58,10 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .background(SomewhereColors.Background)
                 .padding(padding)
-                .systemBarsPadding()
+                .verticalScroll(androidx.compose.foundation.rememberScrollState())
                 .padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text(
-                text = "Settings",
-                style = MaterialTheme.typography.headlineMedium
-            )
-
             val openLegalUrl = {
                 val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://somewhere-privacy-policy.vercel.app/"))
                 context.startActivity(intent)
@@ -87,7 +87,7 @@ fun SettingsScreen(
                 onClick = { showConfirm = true }
             )
 
-            Spacer(modifier = Modifier.weight(1f))
+            Spacer(modifier = Modifier.height(16.dp))
 
             Text(
                 text = "Version ${BuildConfig.VERSION_NAME}",
@@ -96,10 +96,6 @@ fun SettingsScreen(
                 modifier = Modifier.align(Alignment.CenterHorizontally)
             )
 
-            SomewhereButton(
-                text = "Back",
-                onClick = onBack
-            )
         }
     }
 

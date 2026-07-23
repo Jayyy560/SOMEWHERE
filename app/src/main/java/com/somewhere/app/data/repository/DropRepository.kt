@@ -772,6 +772,41 @@ class DropRepository(
             it.printStackTrace()
         }.getOrDefault(emptyList())
     }
+
+    suspend fun getDropById(dropId: String): Drop? {
+        dao.getDropById(dropId)?.let { return it }
+        return runCatching {
+            val remote = SupabaseManager.client.postgrest["drops"]
+                .select { filter { eq("id", dropId) } }
+                .decodeList<NearbyDrop>()
+                .firstOrNull()
+                ?: return@runCatching null
+
+            Drop(
+                id = remote.id,
+                text = remote.text.take(120),
+                imagePath = remote.imageUrl,
+                audioPath = remote.audioUrl,
+                latitude = remote.latitude,
+                longitude = remote.longitude,
+                timestamp = parseTimestamp(remote.createdAt),
+                authorName = remote.authorName,
+                authorAvatarUrl = remote.authorAvatarUrl,
+                authorId = remote.authorId,
+                expiresAt = remote.expiresAt?.let { parseTimestamp(it) },
+                isAnonymous = remote.isAnonymous,
+                category = remote.category,
+                isDeadDrop = remote.isDeadDrop,
+                fileUrl = remote.fileUrl,
+                fileType = remote.fileType,
+                fileName = remote.fileName,
+                fileSize = remote.fileSize,
+                isHitchhiker = remote.isHitchhiker,
+                carriedByUserId = remote.carriedByUserId
+            )
+        }.getOrNull()
+    }
+
     suspend fun updateDropText(dropId: String, newText: String) {
         runCatching {
             // Update remote

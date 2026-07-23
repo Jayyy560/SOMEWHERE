@@ -29,7 +29,9 @@ import java.util.*
 fun CameraBackground(
     isActive: Boolean,
     onImageCaptureCreated: (ImageCapture) -> Unit,
-    onCameraControlCreated: (CameraControl) -> Unit
+    onCameraControlCreated: (CameraControl) -> Unit,
+    onCameraError: (String?) -> Unit = {},
+    retryKey: Int = 0
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -49,7 +51,9 @@ fun CameraBackground(
                 .background(Color.Black)
         ) {
             var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
-            val cameraProviderFuture = remember { ProcessCameraProvider.getInstance(context) }
+            val cameraProviderFuture = remember(retryKey) {
+                ProcessCameraProvider.getInstance(context)
+            }
 
             AndroidView(
                 factory = { ctx ->
@@ -72,24 +76,22 @@ fun CameraBackground(
                 },
                 update = { previewView ->
                     cameraProviderFuture.addListener({
-                        val cameraProvider = cameraProviderFuture.get()
-                        
-                        if (!isActive) {
-                            cameraProvider.unbindAll()
-                            return@addListener
-                        }
-
-                        val preview = Preview.Builder().build().also {
-                            it.surfaceProvider = previewView.surfaceProvider
-                        }
-
-                        val capture = ImageCapture.Builder()
-                            .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
-                            .build()
-                            
-                        onImageCaptureCreated(capture)
-
                         try {
+                            val cameraProvider = cameraProviderFuture.get()
+                            if (!isActive) {
+                                cameraProvider.unbindAll()
+                                return@addListener
+                            }
+
+                            val preview = Preview.Builder().build().also {
+                                it.surfaceProvider = previewView.surfaceProvider
+                            }
+
+                            val capture = ImageCapture.Builder()
+                                .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                                .build()
+
+                            onImageCaptureCreated(capture)
                             cameraProvider.unbindAll()
                             val camera = cameraProvider.bindToLifecycle(
                                 lifecycleOwner,
@@ -99,8 +101,10 @@ fun CameraBackground(
                             )
                             cameraControl = camera.cameraControl
                             onCameraControlCreated(camera.cameraControl)
+                            onCameraError(null)
                         } catch (e: Exception) {
                             Log.e("CameraBackground", "Use case binding failed", e)
+                            onCameraError("Camera is unavailable. Close other camera apps and retry.")
                         }
                     }, ContextCompat.getMainExecutor(context))
                 }

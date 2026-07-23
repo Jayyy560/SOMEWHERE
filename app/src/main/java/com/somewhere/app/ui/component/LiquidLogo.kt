@@ -3,6 +3,7 @@ package com.somewhere.app.ui.component
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
 import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
@@ -158,12 +160,13 @@ fun LiquidLogo(
             .height(100.dp)
             .onSizeChanged { size = it }
             .graphicsLayer {
-                if (shader != null && size.width > 0 && size.height > 0) {
-                    shader.setFloatUniform("size", size.width.toFloat(), size.height.toFloat())
-                    shader.setFloatUniform("dropCenter", dropCenter.x, dropCenter.y)
-                    shader.setFloatUniform("dropRadius", dropRadius)
-                    shader.setFloatUniform("time", time)
-                    renderEffect = RenderEffect.createRuntimeShaderEffect(shader, "composable").asComposeRenderEffect()
+                if (
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    shader != null &&
+                    size.width > 0 &&
+                    size.height > 0
+                ) {
+                    applyRuntimeShader(shader, size, dropCenter, dropRadius, time)
                 }
             },
         contentAlignment = Alignment.Center
@@ -174,4 +177,19 @@ fun LiquidLogo(
             color = SomewhereColors.TextPrimary
         )
     }
+}
+
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
+private fun GraphicsLayerScope.applyRuntimeShader(
+    shader: RuntimeShader,
+    size: IntSize,
+    dropCenter: Offset,
+    dropRadius: Float,
+    time: Float
+) {
+    shader.setFloatUniform("size", size.width.toFloat(), size.height.toFloat())
+    shader.setFloatUniform("dropCenter", dropCenter.x, dropCenter.y)
+    shader.setFloatUniform("dropRadius", dropRadius)
+    shader.setFloatUniform("time", time)
+    renderEffect = RenderEffect.createRuntimeShaderEffect(shader, "composable").asComposeRenderEffect()
 }

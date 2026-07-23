@@ -465,7 +465,7 @@ fun DropDetailSheet(
                             else { repository.likeDrop(drop); likeCount++ }
                             isLiked = !isLiked
                         }
-                    }, Modifier.size(34.dp)) {
+                    }, Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
                         Icon(if (isLiked) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             "Like Drop", Modifier.size(18.dp).scale(likeScaleAnim),
                             if (isLiked) SomewhereColors.Error else TextMd)
@@ -512,8 +512,10 @@ fun DropDetailSheet(
                             }
                             context.startActivity(android.content.Intent.createChooser(i, null))
                         }, Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Icon(Icons.Default.Share, "Share", Modifier.size(24.dp), TextMd) }
-                        IconButton(onClick = onBlock, Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Icon(Icons.Default.Block, "Block", Modifier.size(24.dp), TextMd) }
-                        IconButton(onClick = onReport, Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Icon(Icons.Default.Report, "Report", Modifier.size(24.dp), TextMd) }
+                        if (drop.authorId != currentUserId) {
+                            IconButton(onClick = onBlock, Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Icon(Icons.Default.Block, "Block", Modifier.size(24.dp), TextMd) }
+                            IconButton(onClick = onReport, Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Icon(Icons.Default.Report, "Report", Modifier.size(24.dp), TextMd) }
+                        }
                         if (drop.authorId != null && drop.authorId == currentUserId) {
                             IconButton(onClick = { isEditing = true }, Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Icon(Icons.Default.Edit, "Edit", Modifier.size(24.dp), TextMd) }
                             IconButton(onClick = { showDeleteDialog = true }, Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) { Icon(Icons.Default.Delete, "Delete", Modifier.size(24.dp), SomewhereColors.Error) }

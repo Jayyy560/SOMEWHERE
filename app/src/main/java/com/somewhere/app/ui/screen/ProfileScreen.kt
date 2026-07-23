@@ -195,7 +195,7 @@ fun ProfileScreen(
                         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                         showEditProfile = true 
                     },
-                    modifier = Modifier.height(36.dp),
+                    modifier = Modifier.heightIn(min = 48.dp),
                     colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
                         contentColor = SomewhereColors.TextPrimary
                     ),
@@ -242,7 +242,7 @@ fun ProfileScreen(
 
             // Grid
             val isLoading by viewModel.isLoading.collectAsState()
-            var isRefreshing by remember { mutableStateOf(false) }
+            val isRefreshing by viewModel.isRefreshing.collectAsState()
 
             androidx.compose.animation.AnimatedContent(
                 targetState = selectedTabIndex,
@@ -321,12 +321,7 @@ fun ProfileScreen(
                     androidx.compose.material3.pulltorefresh.PullToRefreshBox(
                         isRefreshing = isRefreshing,
                         onRefresh = {
-                            isRefreshing = true
-                            viewModel.refreshUnlockedDrops()
-                            scope.launch {
-                                kotlinx.coroutines.delay(800)
-                                isRefreshing = false
-                            }
+                            viewModel.refreshTab(targetIndex)
                         },
                         modifier = Modifier.fillMaxSize()
                     ) {
@@ -341,6 +336,7 @@ fun ProfileScreen(
                                 ProfileGridItem(
                                     drop = drop,
                                     onClick = { selectedDrop = drop },
+                                    canDelete = targetIndex == 0 && drop.authorId == currentUserId,
                                     onDelete = {
                                         val dropId = drop.id
                                         hiddenDropIds.add(dropId)
@@ -466,7 +462,7 @@ fun ProfileScreen(
                         if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
                             hiddenDropIds.remove(dropId)
                         } else {
-                            // No report action in ProfileViewModel currently, but just hide it
+                            viewModel.reportDrop(dropId)
                             hiddenDropIds.remove(dropId)
                         }
                     }
@@ -478,7 +474,12 @@ fun ProfileScreen(
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
-fun ProfileGridItem(drop: Drop, onClick: () -> Unit, onDelete: () -> Unit) {
+fun ProfileGridItem(
+    drop: Drop,
+    onClick: () -> Unit,
+    canDelete: Boolean,
+    onDelete: () -> Unit
+) {
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     var showMenu by remember { mutableStateOf(false) }
 
@@ -492,8 +493,10 @@ fun ProfileGridItem(drop: Drop, onClick: () -> Unit, onDelete: () -> Unit) {
                     onClick()
                 },
                 onLongClick = {
-                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                    showMenu = true
+                    if (canDelete) {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        showMenu = true
+                    }
                 }
             )
     ) {
@@ -504,17 +507,19 @@ fun ProfileGridItem(drop: Drop, onClick: () -> Unit, onDelete: () -> Unit) {
             contentScale = androidx.compose.ui.layout.ContentScale.Crop
         )
 
-        androidx.compose.material3.DropdownMenu(
-            expanded = showMenu,
-            onDismissRequest = { showMenu = false }
-        ) {
-            androidx.compose.material3.DropdownMenuItem(
-                text = { Text("Delete", color = SomewhereColors.Error) },
-                onClick = {
-                    showMenu = false
-                    onDelete()
-                }
-            )
+        if (canDelete) {
+            androidx.compose.material3.DropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false }
+            ) {
+                androidx.compose.material3.DropdownMenuItem(
+                    text = { Text("Delete", color = SomewhereColors.Error) },
+                    onClick = {
+                        showMenu = false
+                        onDelete()
+                    }
+                )
+            }
         }
     }
 }

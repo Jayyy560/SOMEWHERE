@@ -33,10 +33,14 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.PermissionStatus
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.somewhere.app.ui.component.SomewhereButton
+import com.somewhere.app.ui.component.SomewhereTopAppBar
 import com.somewhere.app.ui.theme.SomewhereColors
+import com.somewhere.app.util.PermissionRequestHistory
+import com.somewhere.app.util.SettingsUtils
 import com.somewhere.app.viewmodel.ImageMatchViewModel
 import com.somewhere.app.viewmodel.MatchState
 import java.util.concurrent.Executor
@@ -53,12 +57,36 @@ fun FindSpotScreen(
     val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
     val matchState by viewModel.matchState.collectAsState()
     val score by viewModel.matchScore.collectAsState()
+    val context = LocalContext.current
+    var hasRequestedCamera by remember {
+        mutableStateOf(
+            PermissionRequestHistory.wasRequested(
+                context,
+                android.Manifest.permission.CAMERA
+            )
+        )
+    }
+    val cameraPermanentlyDenied =
+        !cameraPermissionState.status.isGranted &&
+            hasRequestedCamera &&
+            (cameraPermissionState.status as? PermissionStatus.Denied)
+                ?.shouldShowRationale == false
 
     LaunchedEffect(Unit) {
         if (!cameraPermissionState.status.isGranted) {
+            PermissionRequestHistory.markRequested(
+                context,
+                listOf(android.Manifest.permission.CAMERA)
+            )
+            hasRequestedCamera = true
             cameraPermissionState.launchPermissionRequest()
         }
-        viewModel.startLiveAnalysis(originalImageUrl)
+    }
+
+    LaunchedEffect(cameraPermissionState.status.isGranted, originalImageUrl) {
+        if (cameraPermissionState.status.isGranted) {
+            viewModel.startLiveAnalysis(originalImageUrl)
+        }
     }
 
     Box(
@@ -141,32 +169,32 @@ fun FindSpotScreen(
                     color = SomewhereColors.TextPrimary
                 )
                 Spacer(modifier = Modifier.height(16.dp))
-                SomewhereButton(text = "Grant Permission", onClick = { cameraPermissionState.launchPermissionRequest() })
+                SomewhereButton(
+                    text = if (cameraPermanentlyDenied) "Open Settings" else "Grant Permission",
+                    onClick = {
+                        if (cameraPermanentlyDenied) {
+                            SettingsUtils.openAppSettings(context)
+                        } else {
+                            PermissionRequestHistory.markRequested(
+                                context,
+                                listOf(android.Manifest.permission.CAMERA)
+                            )
+                            hasRequestedCamera = true
+                            cameraPermissionState.launchPermissionRequest()
+                        }
+                    }
+                )
             }
         }
 
-        // Top Bar
-        Row(
+        SomewhereTopAppBar(
+            title = "Find Exact Spot",
+            onBack = onBack,
             modifier = Modifier
+                .align(Alignment.TopCenter)
                 .fillMaxWidth()
-                .padding(16.dp)
-                .systemBarsPadding(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    imageVector = Icons.Default.ArrowBack,
-                    contentDescription = "Back",
-                    tint = SomewhereColors.TextPrimary
-                )
-            }
-            Text(
-                "Find Exact Spot",
-                style = MaterialTheme.typography.titleMedium,
-                color = SomewhereColors.TextPrimary,
-                fontWeight = FontWeight.Bold
-            )
-        }
+                .systemBarsPadding()
+        )
     }
 }
 

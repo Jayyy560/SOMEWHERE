@@ -16,6 +16,12 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import javax.inject.Inject
 
+enum class DropCreationStep {
+    MESSAGE,
+    ENHANCEMENTS,
+    LOCATION
+}
+
 /**
  * ViewModel for the Drop screen.
  * Manages the captured photo URI, text input, and save operation.
@@ -42,17 +48,28 @@ class DropViewModel @Inject constructor(
         val deadDropFileName: String? = null,
         val deadDropFileSize: Long? = null,
         val deadDropFileType: String? = null,
-        val isHitchhiker: Boolean = false
+        val isHitchhiker: Boolean = false,
+        val creationStep: DropCreationStep = DropCreationStep.MESSAGE
     )
 
     private val _uiState = MutableStateFlow(
         DropUiState(
             capturedImageUri = savedStateHandle.get<Uri>("capturedImageUri"),
+            recordedAudioUri = savedStateHandle.get<Uri>("recordedAudioUri"),
             text = savedStateHandle.get<String>("text") ?: "",
+            isMoment = savedStateHandle.get<Boolean>("isMoment") ?: false,
+            durationMs = savedStateHandle.get<Long>("durationMs") ?: 3600000L,
+            customDurationLabel = savedStateHandle.get<String>("customDurationLabel"),
+            category = savedStateHandle.get<String>("category") ?: "Story",
+            isAnonymous = savedStateHandle.get<Boolean>("isAnonymous") ?: false,
             deadDropFileUri = savedStateHandle.get<Uri>("deadDropFileUri"),
             deadDropFileName = savedStateHandle.get<String>("deadDropFileName"),
             deadDropFileSize = savedStateHandle.get<Long>("deadDropFileSize"),
-            deadDropFileType = savedStateHandle.get<String>("deadDropFileType")
+            deadDropFileType = savedStateHandle.get<String>("deadDropFileType"),
+            isHitchhiker = savedStateHandle.get<Boolean>("isHitchhiker") ?: false,
+            creationStep = savedStateHandle.get<String>("creationStep")
+                ?.let { runCatching { DropCreationStep.valueOf(it) }.getOrNull() }
+                ?: DropCreationStep.MESSAGE
         )
     )
     val uiState: StateFlow<DropUiState> = _uiState.asStateFlow()
@@ -61,17 +78,30 @@ class DropViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.collect { state ->
                 savedStateHandle["capturedImageUri"] = state.capturedImageUri
+                savedStateHandle["recordedAudioUri"] = state.recordedAudioUri
                 savedStateHandle["text"] = state.text
+                savedStateHandle["isMoment"] = state.isMoment
+                savedStateHandle["durationMs"] = state.durationMs
+                savedStateHandle["customDurationLabel"] = state.customDurationLabel
+                savedStateHandle["category"] = state.category
+                savedStateHandle["isAnonymous"] = state.isAnonymous
                 savedStateHandle["deadDropFileUri"] = state.deadDropFileUri
                 savedStateHandle["deadDropFileName"] = state.deadDropFileName
                 savedStateHandle["deadDropFileSize"] = state.deadDropFileSize
                 savedStateHandle["deadDropFileType"] = state.deadDropFileType
+                savedStateHandle["isHitchhiker"] = state.isHitchhiker
+                savedStateHandle["creationStep"] = state.creationStep.name
             }
         }
     }
 
     fun onPhotoCaptured(uri: Uri) {
-        _uiState.update { it.copy(capturedImageUri = uri) }
+        _uiState.update {
+            it.copy(
+                capturedImageUri = uri,
+                creationStep = DropCreationStep.MESSAGE
+            )
+        }
     }
 
     fun onTextChanged(text: String) {
@@ -135,6 +165,10 @@ class DropViewModel @Inject constructor(
 
     fun setHitchhiker(isHitchhiker: Boolean) {
         _uiState.update { it.copy(isHitchhiker = isHitchhiker) }
+    }
+
+    fun setCreationStep(step: DropCreationStep) {
+        _uiState.update { it.copy(creationStep = step) }
     }
 
     fun clearFile() {

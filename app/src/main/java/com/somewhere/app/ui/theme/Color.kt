@@ -15,7 +15,7 @@ object SomewhereColors {
 
     val TextPrimary = Color(0xFFEBEBEB)
     val TextSecondary = Color(0xFF808080)
-    val TextMuted = Color(0xFF4A4A4A)
+    val TextMuted = Color(0xFF7A7A7A)
 
     val Accent = Color(0xFFF5F5F5)
     val AccentSubtle = Color(0xFFB0B0B0)

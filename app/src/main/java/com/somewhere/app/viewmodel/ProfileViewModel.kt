@@ -40,6 +40,9 @@ class ProfileViewModel @Inject constructor(
     private val _isLoading = kotlinx.coroutines.flow.MutableStateFlow(true)
     val isLoading: StateFlow<Boolean> = _isLoading
 
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing
+
     init {
         viewModelScope.launch {
             com.somewhere.app.data.remote.SupabaseManager.client.auth.sessionStatus.collect {
@@ -61,6 +64,25 @@ class ProfileViewModel @Inject constructor(
     fun refreshUnlockedDrops() {
         viewModelScope.launch {
             _unlockedDrops.value = repository.getUnlockedDrops()
+        }
+    }
+
+    fun refreshTab(tabIndex: Int) {
+        if (_isRefreshing.value) return
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                when (tabIndex) {
+                    0 -> {
+                        repository.syncMyDrops()
+                        repository.syncCarriedDrops()
+                    }
+                    1 -> _unlockedDrops.value = repository.getUnlockedDrops()
+                    2 -> repository.syncCarriedDrops()
+                }
+            } finally {
+                _isRefreshing.value = false
+            }
         }
     }
 
@@ -105,5 +127,10 @@ class ProfileViewModel @Inject constructor(
             repository.blockUser(authorName)
             refreshUnlockedDrops() // Refresh drops to remove blocked user's drops if needed
         }
+    }
+
+    fun reportDrop(dropId: String) {
+        repository.reportDrop(dropId)
+        _unlockedDrops.value = _unlockedDrops.value.filterNot { it.id == dropId }
     }
 }

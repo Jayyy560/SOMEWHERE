@@ -15,6 +15,7 @@ import com.google.accompanist.permissions.PermissionStatus
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.util.SettingsUtils
+import com.somewhere.app.util.PermissionRequestHistory
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -26,7 +27,7 @@ fun PermissionGate(
 ) {
     val context = LocalContext.current
     val permissionsState = rememberMultiplePermissionsState(permissions)
-    var requested by remember { mutableStateOf(false) }
+    var requestHistoryVersion by remember { mutableIntStateOf(0) }
 
     val allGranted = permissionsState.allPermissionsGranted
     val shouldShowRationale = permissionsState.permissions.any { permission ->
@@ -35,7 +36,22 @@ fun PermissionGate(
             else -> false
         }
     }
-    val permanentlyDenied = requested && !shouldShowRationale && !allGranted
+    val deniedPermissions = permissionsState.permissions.filter {
+        it.status is PermissionStatus.Denied
+    }
+    val permanentlyDenied = remember(
+        requestHistoryVersion,
+        deniedPermissions,
+        shouldShowRationale,
+        allGranted
+    ) {
+        deniedPermissions.isNotEmpty() &&
+            deniedPermissions.all {
+                PermissionRequestHistory.wasRequested(context, it.permission)
+            } &&
+            !shouldShowRationale &&
+            !allGranted
+    }
 
     if (allGranted) {
         onGranted()
@@ -49,7 +65,8 @@ fun PermissionGate(
         showRationale = shouldShowRationale,
         permanentlyDenied = permanentlyDenied,
         onRequest = {
-            requested = true
+            PermissionRequestHistory.markRequested(context, permissions)
+            requestHistoryVersion++
             permissionsState.launchMultiplePermissionRequest()
         }
     )

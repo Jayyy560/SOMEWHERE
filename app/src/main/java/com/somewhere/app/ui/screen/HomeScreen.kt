@@ -169,7 +169,7 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             PressableButton(
-                text = "Explore",
+                text = "Explore Nearby",
                 onClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     onExplore()

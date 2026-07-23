@@ -14,13 +14,18 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.somewhere.app.ui.theme.SomewhereColors
 import kotlinx.coroutines.launch
 import androidx.compose.ui.draw.blur
@@ -38,38 +43,17 @@ fun FloatingBottomNav(
 ) {
     val tabs = listOf(
         Icons.Default.DirectionsWalk to "Trips",
-        Icons.Default.Home to "Discovery",
-        Icons.Default.Add to "Create Drop",
+        Icons.Default.Home to "Home",
+        Icons.Default.Add to "Create",
         Icons.Default.Person to "Profile"
     )
-
-    // Wavy tap animation state
-    var isWavy by remember { mutableStateOf(false) }
-    LaunchedEffect(pagerState.currentPage) {
-        isWavy = true
-        kotlinx.coroutines.delay(1000)
-        isWavy = false
-    }
-
-    val waveTransition = rememberInfiniteTransition(label = "wave")
-    val waveProgress by waveTransition.animateFloat(
-        initialValue = 0f, 
-        targetValue = if (isWavy) (2 * kotlin.math.PI).toFloat() else 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1000, easing = LinearEasing), 
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "wave"
-    )
-    
-    val shape = if (isWavy) WavyPillShape(waveProgress, 1.15f) else androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)
 
     Box(
         modifier = modifier
             .padding(bottom = 32.dp)
-            .height(64.dp)
+            .height(76.dp)
             .clip(androidx.compose.foundation.shape.RoundedCornerShape(percent = 50))
-            .background(Color.Black.copy(alpha = 0.4f)) // Darker, less reflective base
+            .background(Color.Black.copy(alpha = 0.72f))
             .border(
                 width = 1.dp,
                 brush = Brush.linearGradient(
@@ -80,56 +64,11 @@ fun FloatingBottomNav(
                 ),
                 shape = androidx.compose.foundation.shape.RoundedCornerShape(percent = 50)
             )
-            .padding(horizontal = 16.dp),
-        contentAlignment = Alignment.CenterStart
+            .padding(horizontal = 8.dp),
+        contentAlignment = Alignment.Center
     ) {
-        // Sliding Jelly Indicator
-        Box(
-            modifier = Modifier
-                .offset {
-                    val offsetDp = (-14).dp + ((pagerState.currentPage + pagerState.currentPageOffsetFraction) * 72).dp
-                    androidx.compose.ui.unit.IntOffset(x = offsetDp.roundToPx(), y = 0)
-                }
-                .height(56.dp)
-                .width(84.dp)
-                .clip(shape)
-                .background(Color.White.copy(alpha = 0.02f))
-                .background(
-                    brush = Brush.radialGradient(
-                        colors = listOf(
-                            com.somewhere.app.ui.theme.LocalAmbientColors.current.glowSecondary.copy(alpha = 0.4f),
-                            com.somewhere.app.ui.theme.LocalAmbientColors.current.glowPrimary.copy(alpha = 0.2f),
-                            Color.Transparent
-                        ),
-                        center = androidx.compose.ui.geometry.Offset(40f, 20f),
-                        radius = 100f
-                    )
-                )
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.35f),
-                            Color.Transparent,
-                            Color.White.copy(alpha = 0.1f)
-                        )
-                    )
-                )
-                .border(
-                    width = 1.dp,
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.8f),
-                            Color.White.copy(alpha = 0.1f),
-                            Color.White.copy(alpha = 0.4f)
-                        )
-                    ),
-                    shape = shape
-                )
-                .blur(4.dp)
-        )
-
         Row(
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(0.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             tabs.forEachIndexed { index, (icon, desc) ->
@@ -164,8 +103,25 @@ private fun BottomNavItem(
 
     Box(
         modifier = Modifier
-            .size(56.dp)
-            .clip(androidx.compose.foundation.shape.RoundedCornerShape(percent = 50))
+            .width(72.dp)
+            .height(60.dp)
+            .clip(androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
+            .background(
+                if (isSelected) {
+                    com.somewhere.app.ui.theme.LocalAmbientColors.current.glowPrimary.copy(alpha = 0.2f)
+                } else {
+                    Color.Transparent
+                }
+            )
+            .border(
+                width = if (isSelected) 1.dp else 0.dp,
+                color = if (isSelected) Color.White.copy(alpha = 0.28f) else Color.Transparent,
+                shape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
+            )
+            .semantics {
+                selected = isSelected
+                stateDescription = if (isSelected) "Selected" else "Not selected"
+            }
             .combinedClickable(
                 role = androidx.compose.ui.semantics.Role.Tab,
                 onClick = {
@@ -203,15 +159,26 @@ private fun BottomNavItem(
             ),
         contentAlignment = Alignment.Center
     ) {
-        // Icon
-        Icon(
-            imageVector = icon,
-            contentDescription = description,
-            tint = if (isSelected) Color.White else Color.White.copy(alpha = 0.5f),
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
             modifier = Modifier.graphicsLayer {
-                this.scaleX = scale.value
-                this.scaleY = scale.value
+                scaleX = scale.value
+                scaleY = scale.value
             }
-        )
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isSelected) Color.White else Color.White.copy(alpha = 0.58f),
+                modifier = Modifier.size(22.dp)
+            )
+            Text(
+                text = description,
+                fontSize = 10.sp,
+                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.58f),
+                maxLines = 1
+            )
+        }
     }
 }

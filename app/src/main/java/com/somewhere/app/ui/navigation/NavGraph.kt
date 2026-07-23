@@ -13,6 +13,7 @@ import com.somewhere.app.ui.screen.FindSpotScreen
 import com.somewhere.app.ui.screen.MainPagerScreen
 import com.somewhere.app.ui.screen.TripScreen
 import com.somewhere.app.ui.screen.NotificationScreen
+import com.somewhere.app.ui.screen.NotificationDropScreen
 
 /**
  * Navigation routes for the app.
@@ -22,11 +23,15 @@ object NavDestinations {
     const val DISCOVERY = "discovery"
     const val SETTINGS = "settings"
     const val NOTIFICATIONS = "notifications"
+    const val NOTIFICATION_DROP = "notification_drop/{dropId}"
     const val FIND_SPOT = "find_spot/{imageUrl}"
     
     fun createFindSpotRoute(imageUrl: String): String {
         return "find_spot/${java.net.URLEncoder.encode(imageUrl, "UTF-8")}"
     }
+
+    fun createNotificationDropRoute(dropId: String): String =
+        "notification_drop/${java.net.URLEncoder.encode(dropId, "UTF-8")}"
 }
 
 private const val TRANSITION_DURATION = 350
@@ -81,6 +86,7 @@ fun SomewhereNavGraph(
 
         composable(NavDestinations.DISCOVERY) {
             DiscoveryScreen(
+                onBack = { navController.popBackStack() },
                 onFindSpot = { imageUrl ->
                     navController.navigate(NavDestinations.createFindSpotRoute(imageUrl))
                 }
@@ -95,7 +101,22 @@ fun SomewhereNavGraph(
         
         composable(NavDestinations.NOTIFICATIONS) {
             NotificationScreen(
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onOpenDrop = { dropId ->
+                    navController.navigate(NavDestinations.createNotificationDropRoute(dropId))
+                }
+            )
+        }
+
+        composable(NavDestinations.NOTIFICATION_DROP) { backStackEntry ->
+            val encodedId = backStackEntry.arguments?.getString("dropId") ?: ""
+            val dropId = java.net.URLDecoder.decode(encodedId, "UTF-8")
+            NotificationDropScreen(
+                dropId = dropId,
+                onBack = { navController.popBackStack() },
+                onFindSpot = { imageUrl ->
+                    navController.navigate(NavDestinations.createFindSpotRoute(imageUrl))
+                }
             )
         }
         

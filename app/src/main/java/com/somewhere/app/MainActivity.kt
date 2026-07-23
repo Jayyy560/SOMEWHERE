@@ -76,7 +76,6 @@ class MainActivity : ComponentActivity() {
         windowInsetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         windowInsetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
 
-        com.somewhere.app.util.NotificationHelper.checkAndRequestPermission(this)
         SupabaseManager.client.handleDeeplinks(intent)
 
         setContent {
@@ -127,8 +126,30 @@ class MainActivity : ComponentActivity() {
 
                         when (authCategory) {
                             AuthCategory.AUTHENTICATED -> {
-                                val startDest = com.somewhere.app.ui.navigation.NavDestinations.MAIN_PAGER
-                                SomewhereNavGraph(navController = navController, startDestination = startDest)
+                                val prefs = remember {
+                                    getSharedPreferences(
+                                        "somewhere_prefs",
+                                        android.content.Context.MODE_PRIVATE
+                                    )
+                                }
+                                var showOnboarding by remember {
+                                    mutableStateOf(!prefs.getBoolean("has_seen_tutorial", false))
+                                }
+                                if (showOnboarding) {
+                                    val finishOnboarding = {
+                                        prefs.edit()
+                                            .putBoolean("has_seen_tutorial", true)
+                                            .apply()
+                                        showOnboarding = false
+                                    }
+                                    com.somewhere.app.ui.component.TutorialOverlay(
+                                        onComplete = finishOnboarding,
+                                        onSkip = finishOnboarding
+                                    )
+                                } else {
+                                    val startDest = com.somewhere.app.ui.navigation.NavDestinations.MAIN_PAGER
+                                    SomewhereNavGraph(navController = navController, startDestination = startDest)
+                                }
                             }
                             AuthCategory.NEEDS_PASSWORD -> {
                                 com.somewhere.app.ui.screen.UpdatePasswordScreen(

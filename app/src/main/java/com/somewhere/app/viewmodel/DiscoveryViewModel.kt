@@ -60,7 +60,10 @@ class DiscoveryViewModel @Inject constructor(
         val isCurating: Boolean = false,
         val curatedDrop: Pair<String, String>? = null, // (Intro, Text)
         val selectedCategory: String? = null,
-        val isArCoreTracking: Boolean = false
+        val isArCoreTracking: Boolean = false,
+        val isLoadingDrops: Boolean = false,
+        val loadError: String? = null,
+        val locationTimedOut: Boolean = false
     )
 
     private val _uiState = MutableStateFlow(DiscoveryUiState())
@@ -129,7 +132,8 @@ class DiscoveryViewModel @Inject constructor(
                 userLat = location.latitude,
                 userLon = location.longitude,
                 hasLocation = true,
-                locationAccuracyMeters = location.accuracy
+                locationAccuracyMeters = location.accuracy,
+                locationTimedOut = false
             ) }
             // Fetch nearby drops whenever location updates
             fetchNearbyDrops(location.latitude, location.longitude)
@@ -157,7 +161,8 @@ class DiscoveryViewModel @Inject constructor(
                             userLat = location.latitude,
                             userLon = location.longitude,
                             hasLocation = true,
-                            locationAccuracyMeters = location.accuracy
+                            locationAccuracyMeters = location.accuracy,
+                            locationTimedOut = false
                         ) }
                         fetchNearbyDrops(location.latitude, location.longitude)
                     }
@@ -168,6 +173,13 @@ class DiscoveryViewModel @Inject constructor(
             )
         } catch (_: SecurityException) {
             // Permission not granted — handled in UI layer
+        }
+
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(10_000)
+            if (!_uiState.value.hasLocation) {
+                _uiState.update { it.copy(locationTimedOut = true) }
+            }
         }
 
         if (!realtimeStarted) {
@@ -190,6 +202,14 @@ class DiscoveryViewModel @Inject constructor(
     fun stopTracking() {
         sensorManager.unregisterListener(sensorListener)
         fusedLocationClient.removeLocationUpdates(locationCallback)
+    }
+
+    fun retryLocation() {
+        _uiState.update {
+            it.copy(locationTimedOut = false, loadError = null)
+        }
+        stopTracking()
+        startTracking()
     }
 
     fun selectDrop(drop: DiscoveredDrop?) {
@@ -299,7 +319,18 @@ class DiscoveryViewModel @Inject constructor(
 
     private fun fetchNearbyDrops(lat: Double, lon: Double) {
         viewModelScope.launch {
-            val nearbyWithDistance = repository.getDropsNear(lat, lon)
+            _uiState.update { it.copy(isLoadingDrops = true, loadError = null) }
+            val nearbyWithDistance = runCatching {
+                repository.getDropsNear(lat, lon)
+            }.getOrElse { error ->
+                _uiState.update {
+                    it.copy(
+                        isLoadingDrops = false,
+                        loadError = error.message ?: "Could not load nearby Drops"
+                    )
+                }
+                return@launch
+            }
             val currentCategory = _uiState.value.selectedCategory
             
             val filtered = if (currentCategory != null) {
@@ -339,7 +370,11 @@ class DiscoveryViewModel @Inject constructor(
                 .sortedBy { it.distanceMeters }
                 .take(LocationUtils.MAX_VISIBLE)
 
-            _uiState.value = _uiState.value.copy(nearbyDrops = merged)
+            _uiState.value = _uiState.value.copy(
+                nearbyDrops = merged,
+                isLoadingDrops = false,
+                loadError = null
+            )
         }
     }
 

@@ -22,7 +22,14 @@ import kotlinx.serialization.json.put
 import java.util.UUID
 import javax.inject.Inject
 
-data class NotificationItem(val id: String, val title: String, val message: String, val time: String)
+data class NotificationItem(
+    val id: String,
+    val title: String,
+    val message: String,
+    val time: String,
+    val type: String = "system",
+    val dropId: String? = null
+)
 
 private fun getRelativeTime(timestampStr: String): String {
     return try {
@@ -54,6 +61,12 @@ class UserViewModel @Inject constructor(
 
     private val _notifications = MutableStateFlow<List<NotificationItem>>(emptyList())
     val notifications: StateFlow<List<NotificationItem>> = _notifications.asStateFlow()
+
+    private val _notificationsLoading = MutableStateFlow(false)
+    val notificationsLoading: StateFlow<Boolean> = _notificationsLoading.asStateFlow()
+
+    private val _notificationsError = MutableStateFlow<String?>(null)
+    val notificationsError: StateFlow<String?> = _notificationsError.asStateFlow()
 
     private val _hasNotifications = MutableStateFlow(false)
     val hasNotifications: StateFlow<Boolean> = _hasNotifications.asStateFlow()
@@ -90,9 +103,12 @@ class UserViewModel @Inject constructor(
 
     fun loadNotifications() {
         viewModelScope.launch {
+            _notificationsLoading.value = true
+            _notificationsError.value = null
             val user = SupabaseManager.client.auth.currentUserOrNull()
             if (user == null) {
                 _notifications.value = emptyList()
+                _notificationsLoading.value = false
                 return@launch
             }
             try {
@@ -108,7 +124,9 @@ class UserViewModel @Inject constructor(
                         id = remote.id ?: java.util.UUID.randomUUID().toString(),
                         title = if (remote.type == "like") "New Like" else if (remote.type == "comment") "New Comment" else "System",
                         message = remote.message,
-                        time = getRelativeTime(remote.createdAt ?: "")
+                        time = getRelativeTime(remote.createdAt ?: ""),
+                        type = remote.type,
+                        dropId = remote.dropId
                     )
                 }
 
@@ -126,6 +144,9 @@ class UserViewModel @Inject constructor(
                 _hasNotifications.value = remoteNotifs.any { !it.isRead } || (!prefs.getBoolean("welcome_cleared", false) && baseNotifs.isNotEmpty())
             } catch (e: Exception) {
                 e.printStackTrace()
+                _notificationsError.value = e.message ?: "Could not load notifications"
+            } finally {
+                _notificationsLoading.value = false
             }
         }
     }

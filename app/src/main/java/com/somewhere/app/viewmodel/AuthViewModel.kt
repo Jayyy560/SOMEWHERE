@@ -61,29 +61,31 @@ class AuthViewModel @Inject constructor() : ViewModel() {
             return
         }
 
-        if (state.password.length < 8) {
-            _uiState.value = state.copy(errorMessage = "Password must be at least 8 characters")
-            return
-        }
+        if (state.mode == Mode.SIGN_UP) {
+            if (state.password.length < 8) {
+                _uiState.value = state.copy(errorMessage = "Password must be at least 8 characters")
+                return
+            }
 
-        if (state.password.length > 64) {
-            _uiState.value = state.copy(errorMessage = "Password cannot exceed 64 characters")
-            return
-        }
+            if (state.password.length > 64) {
+                _uiState.value = state.copy(errorMessage = "Password cannot exceed 64 characters")
+                return
+            }
 
-        val hasUpper = state.password.any { it.isUpperCase() }
-        val hasLower = state.password.any { it.isLowerCase() }
-        val hasDigit = state.password.any { it.isDigit() }
-        val hasSymbol = state.password.any { !it.isLetterOrDigit() }
+            val hasUpper = state.password.any { it.isUpperCase() }
+            val hasLower = state.password.any { it.isLowerCase() }
+            val hasDigit = state.password.any { it.isDigit() }
+            val hasSymbol = state.password.any { !it.isLetterOrDigit() }
 
-        if (!hasUpper || !hasLower || !hasDigit || !hasSymbol) {
-            _uiState.value = state.copy(errorMessage = "Password must contain uppercase, lowercase, number, and symbol")
-            return
-        }
+            if (!hasUpper || !hasLower || !hasDigit || !hasSymbol) {
+                _uiState.value = state.copy(errorMessage = "Password must contain uppercase, lowercase, number, and symbol")
+                return
+            }
 
-        if (state.mode == Mode.SIGN_UP && state.name.isBlank()) {
-            _uiState.value = state.copy(errorMessage = "Name is required for sign up")
-            return
+            if (state.name.isBlank()) {
+                _uiState.value = state.copy(errorMessage = "Name is required for sign up")
+                return
+            }
         }
 
         val url = BuildConfig.SUPABASE_URL.trim()

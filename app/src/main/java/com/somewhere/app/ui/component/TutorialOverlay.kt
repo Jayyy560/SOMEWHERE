@@ -24,7 +24,10 @@ import com.somewhere.app.ui.theme.SomewhereColors
 import kotlinx.coroutines.launch
 
 @Composable
-fun TutorialOverlay(onComplete: () -> Unit) {
+fun TutorialOverlay(
+    onComplete: () -> Unit,
+    onSkip: () -> Unit
+) {
     val pages = listOf(
         TutorialPageData(
             "Welcome to Somewhere",
@@ -32,13 +35,13 @@ fun TutorialOverlay(onComplete: () -> Unit) {
             R.drawable.tutorial_home
         ),
         TutorialPageData(
-            "Look Around & Navigate",
-            "Swipe to switch tabs smoothly. The jelly indicator follows your finger. Watch out for glowing drops around you!",
+            "Explore the World",
+            "Use Home to enter the live discovery view. Nearby Drops appear when you reach the places where they were left.",
             R.drawable.tutorial_nav
         ),
         TutorialPageData(
-            "Capture the Moment",
-            "When in the Capture tab, simply tap anywhere to focus, and use your phone's Volume buttons to snap a picture instantly.",
+            "Permissions, in Context",
+            "Camera and precise location are requested only when you open discovery or create a Drop. Each screen explains why it needs access.",
             R.drawable.tutorial_capture
         )
     )
@@ -52,6 +55,16 @@ fun TutorialOverlay(onComplete: () -> Unit) {
             .fillMaxSize()
             .background(SomewhereColors.Background.copy(alpha = 0.95f))
     ) {
+        TextButton(
+            onClick = onSkip,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(12.dp)
+        ) {
+            Text("Skip", color = SomewhereColors.TextSecondary)
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()

@@ -14,3 +14,20 @@ object SettingsUtils {
         context.startActivity(intent)
     }
 }
+
+object PermissionRequestHistory {
+    private const val PREFS_NAME = "permission_request_history"
+
+    fun wasRequested(context: Context, permission: String): Boolean =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(permission, false)
+
+    fun markRequested(context: Context, permissions: Collection<String>) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .apply {
+                permissions.forEach { putBoolean(it, true) }
+            }
+            .apply()
+    }
+}

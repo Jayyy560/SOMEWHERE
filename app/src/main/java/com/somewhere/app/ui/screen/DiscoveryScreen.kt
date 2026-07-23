@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Hearing
@@ -56,11 +57,12 @@ import com.somewhere.app.ui.component.DropDetailSheet
 import com.somewhere.app.ui.component.shimmerEffect
 import com.somewhere.app.ui.component.DropOverlayCard
 import com.somewhere.app.ui.component.PingPulse
-import com.somewhere.app.ui.component.TutorialOverlay
 import com.somewhere.app.ui.component.SomewhereButton
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.util.LocationUtils
 import com.somewhere.app.util.rememberReduceMotionEnabled
+import com.somewhere.app.util.NetworkStatus
+import com.somewhere.app.util.rememberNetworkStatus
 import com.somewhere.app.viewmodel.DiscoveryViewModel
 
 /**
@@ -73,6 +75,7 @@ import com.somewhere.app.viewmodel.DiscoveryViewModel
  */
 @Composable
 fun DiscoveryScreen(
+    onBack: () -> Unit,
     onFindSpot: (String) -> Unit = {},
     viewModel: DiscoveryViewModel = hiltViewModel()
 ) {
@@ -87,6 +90,7 @@ fun DiscoveryScreen(
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
     val screenWidthPx = with(density) { screenWidthDp.dp.toPx() }
     val ambient = com.somewhere.app.ui.theme.LocalAmbientColors.current
+    val networkStatus = rememberNetworkStatus()
 
     val hiddenDropIds = remember { androidx.compose.runtime.mutableStateListOf<String>() }
     val visibleDrops by remember(uiState.nearbyDrops, hiddenDropIds) {
@@ -136,9 +140,6 @@ fun DiscoveryScreen(
         }
     }
 
-    val prefs = context.getSharedPreferences("somewhere_prefs", android.content.Context.MODE_PRIVATE)
-    var showTutorial by remember { mutableStateOf(!prefs.getBoolean("has_seen_tutorial", false)) }
-
     PermissionGate(
         title = "Camera + Location",
         description = "We use your camera to reveal nearby drops, and location to place them accurately.",
@@ -185,9 +186,24 @@ fun DiscoveryScreen(
 
             // Fullscreen camera preview
             var arCoreSupported by remember { mutableStateOf<Boolean?>(null) }
+            var arAvailabilityCheck by remember { mutableIntStateOf(0) }
+            var fallbackCameraError by remember { mutableStateOf<String?>(null) }
+            var fallbackCameraRetryKey by remember { mutableIntStateOf(0) }
             val activity = context as? android.app.Activity
 
-            LaunchedEffect(Unit) {
+            DisposableEffect(lifecycleOwner) {
+                val arResumeObserver = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        arAvailabilityCheck++
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(arResumeObserver)
+                onDispose {
+                    lifecycleOwner.lifecycle.removeObserver(arResumeObserver)
+                }
+            }
+
+            LaunchedEffect(arAvailabilityCheck) {
                 val apk = com.google.ar.core.ArCoreApk.getInstance()
                 // Poll until the availability result is no longer transient (cold start can take >1s)
                 var availability = apk.checkAvailability(context)
@@ -402,35 +418,63 @@ fun DiscoveryScreen(
                     }
                 } else if (arCoreSupported == false) {
                     // Fallback to CameraX
-                    AndroidView(
-                        factory = { ctx ->
-                            val previewView = androidx.camera.view.PreviewView(ctx).apply {
-                                scaleType = androidx.camera.view.PreviewView.ScaleType.FILL_CENTER
-                            }
-
-                            val cameraProviderFuture = androidx.camera.lifecycle.ProcessCameraProvider.getInstance(ctx)
-                            cameraProviderFuture.addListener({
-                                val cameraProvider = cameraProviderFuture.get()
-                                val preview = androidx.camera.core.Preview.Builder().build().also {
-                                    it.surfaceProvider = previewView.surfaceProvider
+                    key(fallbackCameraRetryKey) {
+                        AndroidView(
+                            factory = { ctx ->
+                                val previewView = androidx.camera.view.PreviewView(ctx).apply {
+                                    scaleType = androidx.camera.view.PreviewView.ScaleType.FILL_CENTER
                                 }
 
-                                try {
-                                    cameraProvider.unbindAll()
-                                    cameraProvider.bindToLifecycle(
-                                        lifecycleOwner,
-                                        androidx.camera.core.CameraSelector.DEFAULT_BACK_CAMERA,
-                                        preview
-                                    )
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                }
-                            }, androidx.core.content.ContextCompat.getMainExecutor(ctx))
+                                val cameraProviderFuture = androidx.camera.lifecycle.ProcessCameraProvider.getInstance(ctx)
+                                cameraProviderFuture.addListener({
+                                    val cameraProvider = cameraProviderFuture.get()
+                                    val preview = androidx.camera.core.Preview.Builder().build().also {
+                                        it.surfaceProvider = previewView.surfaceProvider
+                                    }
 
-                            previewView
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
+                                    try {
+                                        cameraProvider.unbindAll()
+                                        cameraProvider.bindToLifecycle(
+                                            lifecycleOwner,
+                                            androidx.camera.core.CameraSelector.DEFAULT_BACK_CAMERA,
+                                            preview
+                                        )
+                                        fallbackCameraError = null
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                        fallbackCameraError = "Camera is unavailable. Close other camera apps and retry."
+                                    }
+                                }, androidx.core.content.ContextCompat.getMainExecutor(ctx))
+
+                                previewView
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    fallbackCameraError?.let { error ->
+                        Column(
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .background(SomewhereColors.Overlay, RoundedCornerShape(16.dp))
+                                .padding(24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                error,
+                                color = SomewhereColors.TextPrimary,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            SomewhereButton(
+                                text = "Retry Camera",
+                                onClick = {
+                                    fallbackCameraError = null
+                                    fallbackCameraRetryKey++
+                                }
+                            )
+                        }
+                    }
                     
                     // Compass fallback overlay
                     val drops = visibleDrops
@@ -523,7 +567,13 @@ fun DiscoveryScreen(
                 }
             }
             // Empty state — animated radar pulse
-            if (uiState.hasLocation && visibleDrops.isEmpty() && !showListView) {
+            if (
+                uiState.hasLocation &&
+                visibleDrops.isEmpty() &&
+                !showListView &&
+                !uiState.isLoadingDrops &&
+                uiState.loadError == null
+            ) {
                 RadarEmptyState(
                     modifier = Modifier.align(Alignment.Center)
                 )
@@ -539,6 +589,19 @@ fun DiscoveryScreen(
                 horizontalArrangement = Arrangement.End,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(SomewhereColors.GlassBackground)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = SomewhereColors.TextPrimary
+                    )
+                }
+                Spacer(Modifier.weight(1f))
                 
                 IconButton(
                     onClick = { showListView = !showListView },
@@ -630,6 +693,7 @@ fun DiscoveryScreen(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         Button(
+                            enabled = networkStatus == NetworkStatus.AVAILABLE && !uiState.isSummarizing,
                             onClick = { 
                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                 viewModel.summarizePlace() 
@@ -643,6 +707,7 @@ fun DiscoveryScreen(
                         }
 
                         Button(
+                            enabled = networkStatus == NetworkStatus.AVAILABLE && !uiState.isCurating,
                             onClick = { 
                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                 viewModel.curateDrop() 
@@ -678,17 +743,81 @@ fun DiscoveryScreen(
                 }
             }
 
-            if (!uiState.hasLocation) {
-                Box(
+            if (networkStatus == NetworkStatus.UNAVAILABLE) {
+                Surface(
                     modifier = Modifier
-                        .align(Alignment.Center)
+                        .align(Alignment.TopCenter)
+                        .statusBarsPadding()
+                        .padding(top = 76.dp),
+                    color = SomewhereColors.Card,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(start = 14.dp, end = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Offline — showing cached nearby Drops",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SomewhereColors.TextPrimary
+                        )
+                        TextButton(
+                            onClick = { viewModel.setCategoryFilter(uiState.selectedCategory) }
+                        ) {
+                            Text("Retry")
+                        }
+                    }
+                }
+            }
+
+            if (!uiState.hasLocation) {
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    if (uiState.locationTimedOut) {
+                        Text(
+                            text = "Location timed out",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = SomewhereColors.TextPrimary
+                        )
+                        Text(
+                            text = "Move to an open area and check that precise location is enabled.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = SomewhereColors.TextSecondary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        SomewhereButton(text = "Retry Location", onClick = viewModel::retryLocation)
+                    } else {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(28.dp),
+                            strokeWidth = 2.dp,
+                            color = SomewhereColors.Accent
+                        )
+                        Text(
+                            text = "Getting your location…",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = SomewhereColors.TextSecondary
+                        )
+                    }
+                }
+            } else if (uiState.loadError != null) {
+                Column(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = "locating…",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Medium
-                        ),
-                        color = SomewhereColors.TextSecondary
+                        uiState.loadError ?: "Could not load nearby Drops",
+                        color = SomewhereColors.TextPrimary
+                    )
+                    SomewhereButton(
+                        text = "Retry",
+                        onClick = { viewModel.setCategoryFilter(uiState.selectedCategory) },
+                        enabled = !uiState.isLoadingDrops
                     )
                 }
             }
@@ -785,14 +914,6 @@ fun DiscoveryScreen(
                 )
             }
             
-            // Tutorial Overlay
-            if (showTutorial) {
-                TutorialOverlay(onComplete = {
-                    prefs.edit().putBoolean("has_seen_tutorial", true).apply()
-                    showTutorial = false
-                })
-            }
-
         }
     }
 }

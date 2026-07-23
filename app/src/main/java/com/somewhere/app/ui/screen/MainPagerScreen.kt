@@ -59,6 +59,8 @@ fun MainPagerScreen(
 
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
     var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
+    var cameraError by remember { mutableStateOf<String?>(null) }
+    var cameraRetryKey by remember { mutableIntStateOf(0) }
 
     val focusRequester = remember { FocusRequester() }
     
@@ -94,7 +96,9 @@ fun MainPagerScreen(
         CameraBackground(
             isActive = pagerState.currentPage == 2 || pagerState.targetPage == 2,
             onImageCaptureCreated = { imageCapture = it },
-            onCameraControlCreated = { cameraControl = it }
+            onCameraControlCreated = { cameraControl = it },
+            onCameraError = { cameraError = it },
+            retryKey = cameraRetryKey
         )
 
         HorizontalPager(
@@ -140,6 +144,12 @@ fun MainPagerScreen(
                             coroutineScope.launch {
                                 pagerState.animateScrollToPage(1)
                             }
+                        },
+                        cameraError = cameraError,
+                        onRetryCamera = {
+                            cameraError = null
+                            imageCapture = null
+                            cameraRetryKey++
                         },
                         onCreationStateChanged = { isCreatingDrop = it }
                     )

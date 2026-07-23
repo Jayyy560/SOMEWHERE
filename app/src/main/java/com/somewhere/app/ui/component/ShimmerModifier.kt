@@ -31,5 +31,5 @@ fun Modifier.shimmerEffect(): Modifier = composed {
         end = Offset(translateAnim, translateAnim)
     )
 
-    this.then(background(brush))
+    background(brush)
 }

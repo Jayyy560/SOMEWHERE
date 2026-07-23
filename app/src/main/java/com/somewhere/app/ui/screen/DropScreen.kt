@@ -22,6 +22,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -64,6 +65,9 @@ import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.util.LocationUtils
 import com.somewhere.app.util.rememberReduceMotionEnabled
 import com.somewhere.app.viewmodel.DropViewModel
+import com.somewhere.app.viewmodel.DropCreationStep
+import com.somewhere.app.util.NetworkStatus
+import com.somewhere.app.util.rememberNetworkStatus
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.delay
@@ -92,6 +96,8 @@ fun DropScreen(
     onCaptureTriggered: () -> Unit,
     onFocusTap: (Float, Float) -> Unit,
     onComplete: () -> Unit,
+    cameraError: String? = null,
+    onRetryCamera: () -> Unit = {},
     onCreationStateChanged: (Boolean) -> Unit = {},
     viewModel: DropViewModel = hiltViewModel()
 ) {
@@ -108,6 +114,11 @@ fun DropScreen(
     var recordingStartedAtMillis by remember { mutableStateOf<Long?>(null) }
     var waveformSamples by remember { mutableStateOf(List(16) { 0.12f }) }
     var previewPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
+    var showDiscardDialog by remember { mutableStateOf(false) }
+    var locationFix by remember { mutableStateOf<LocationResult?>(null) }
+    var isLocating by remember { mutableStateOf(false) }
+    var locationTimedOut by remember { mutableStateOf(false) }
+    val networkStatus = rememberNetworkStatus()
     
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -144,8 +155,8 @@ fun DropScreen(
         }
     }
     
-    LaunchedEffect(uiState.capturedImageUri) {
-        onCreationStateChanged(uiState.capturedImageUri != null)
+    LaunchedEffect(uiState.isSaving) {
+        onCreationStateChanged(uiState.isSaving)
     }
     var isPreviewPlaying by remember { mutableStateOf(false) }
 
@@ -179,16 +190,13 @@ fun DropScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        viewModel.reset()
-    }
-
     // Navigate back after successful save
     LaunchedEffect(uiState.isSaved) {
         if (uiState.isSaved) {
             if (!uiState.isHitchhiker) {
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
+                viewModel.reset()
                 onComplete()
             } else {
                 // The animation will play, and it will handle calling onComplete()
@@ -245,6 +253,29 @@ fun DropScreen(
         uiState.error?.let {
             snackbarHostState.showSnackbar(it)
             viewModel.clearError()
+        }
+    }
+
+    LaunchedEffect(uiState.creationStep, uiState.capturedImageUri) {
+        if (
+            uiState.capturedImageUri != null &&
+            uiState.creationStep == DropCreationStep.LOCATION
+        ) {
+            isLocating = true
+            locationTimedOut = false
+            locationFix = null
+            getCurrentLocation(context) { result ->
+                if (!result.isFallback) {
+                    locationFix = result
+                }
+                isLocating = false
+                locationTimedOut = result.isFallback
+            }
+            delay(10_000)
+            if (locationFix == null) {
+                isLocating = false
+                locationTimedOut = true
+            }
         }
     }
 
@@ -390,10 +421,24 @@ fun DropScreen(
                 exit = androidx.compose.animation.fadeOut(),
                 modifier = Modifier.align(Alignment.BottomCenter)
             ) {
-                val bottomPadding = if (uiState.capturedImageUri == null) 124.dp else 24.dp
+                val hasCapturedPhoto = uiState.capturedImageUri != null
+                val bottomPadding = if (hasCapturedPhoto) 200.dp else 124.dp
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (hasCapturedPhoto) Modifier.fillMaxHeight(0.82f)
+                            else Modifier.wrapContentHeight()
+                        ),
+                    contentAlignment = Alignment.BottomCenter
+                ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .then(
+                            if (hasCapturedPhoto) Modifier.fillMaxHeight()
+                            else Modifier.wrapContentHeight()
+                        )
                         .pointerInput(Unit) {
                             awaitPointerEventScope {
                                 while (true) {
@@ -402,6 +447,7 @@ fun DropScreen(
                                 }
                             }
                         }
+                    .verticalScroll(rememberScrollState())
                     .background(SomewhereColors.Background.copy(alpha = 0.92f))
                     // Add extra 100dp bottom padding to sit above the FloatingBottomNav ONLY when nav is visible
                     .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = bottomPadding)
@@ -410,16 +456,32 @@ fun DropScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 if (uiState.capturedImageUri == null) {
-                    // Capture button
-                    SomewhereButton(
-                        text = "Capture",
-                        onClick = {
-                            takePhoto(context, imageCapture) { uri ->
-                                viewModel.onPhotoCaptured(uri)
-                            }
+                    when {
+                        cameraError != null -> {
+                            Text(
+                                cameraError,
+                                color = SomewhereColors.TextSecondary,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            SomewhereButton(text = "Retry Camera", onClick = onRetryCamera)
                         }
-                    )
+                        imageCapture == null -> {
+                            CircularProgressIndicator(color = SomewhereColors.Accent)
+                            Text("Starting camera…", color = SomewhereColors.TextSecondary)
+                        }
+                        else -> SomewhereButton(
+                            text = "Capture",
+                            onClick = {
+                                takePhoto(context, imageCapture) { uri ->
+                                    viewModel.onPhotoCaptured(uri)
+                                }
+                            }
+                        )
+                    }
                 } else {
+                    DropProgressHeader(step = uiState.creationStep)
+
+                    if (uiState.creationStep == DropCreationStep.MESSAGE) {
                     // Top Row: Text Input & Audio Record Button side-by-side
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -564,7 +626,9 @@ fun DropScreen(
                             )
                         }
                     }
+                    }
 
+                    if (uiState.creationStep == DropCreationStep.ENHANCEMENTS) {
                     // Options Row: Type & Ghost Mode
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -752,7 +816,7 @@ fun DropScreen(
                     ) {
                         SomewhereButton(
                             text = "Retake",
-                            onClick = { viewModel.reset() },
+                            onClick = { showDiscardDialog = true },
                             modifier = Modifier.weight(1f)
                         )
 
@@ -808,31 +872,63 @@ fun DropScreen(
                             )
                         }
                     }
+                    }
 
-                    SomewhereButton(
-                        text = if (uiState.isSaving) "Saving..." else if (uiState.isHitchhiker) "BEGIN ITS JOURNEY" else "MARK THIS PLACE",
-                        enabled = uiState.text.isNotBlank() && !uiState.isSaving,
-                        modifier = Modifier.fillMaxWidth(),
-                        onClick = {
-                            getCurrentLocation(context) { result ->
-                                if (result.isFallback) {
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar("Unable to get location")
-                                    }
-                                    return@getCurrentLocation
+                    if (uiState.creationStep == DropCreationStep.LOCATION) {
+                        LocationConfirmationContent(
+                            locationFix = locationFix,
+                            isLocating = isLocating,
+                            timedOut = locationTimedOut,
+                            isOffline = networkStatus == NetworkStatus.UNAVAILABLE,
+                            onRetry = {
+                                isLocating = true
+                                locationTimedOut = false
+                                getCurrentLocation(context) { result ->
+                                    locationFix = result.takeUnless { it.isFallback }
+                                    isLocating = false
+                                    locationTimedOut = result.isFallback
                                 }
-
-                                if (result.accuracyMeters > LocationUtils.ACCURACY_WARNING_METERS) {
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar("Low GPS accuracy")
-                                    }
-                                }
-
-                                viewModel.saveDrop(result.latitude, result.longitude)
                             }
-                        }
-                    )
+                        )
+                    }
+
             }
+                    if (hasCapturedPhoto) {
+                        DropStepActions(
+                            step = uiState.creationStep,
+                            hasMessage = uiState.text.isNotBlank(),
+                            isSaving = uiState.isSaving,
+                            isOffline = networkStatus == NetworkStatus.UNAVAILABLE,
+                            hasLocation = locationFix != null,
+                            isHitchhiker = uiState.isHitchhiker,
+                            onBack = {
+                                viewModel.setCreationStep(
+                                    when (uiState.creationStep) {
+                                        DropCreationStep.MESSAGE -> DropCreationStep.MESSAGE
+                                        DropCreationStep.ENHANCEMENTS -> DropCreationStep.MESSAGE
+                                        DropCreationStep.LOCATION -> DropCreationStep.ENHANCEMENTS
+                                    }
+                                )
+                            },
+                            onContinue = {
+                                viewModel.setCreationStep(
+                                    when (uiState.creationStep) {
+                                        DropCreationStep.MESSAGE -> DropCreationStep.ENHANCEMENTS
+                                        DropCreationStep.ENHANCEMENTS -> DropCreationStep.LOCATION
+                                        DropCreationStep.LOCATION -> DropCreationStep.LOCATION
+                                    }
+                                )
+                            },
+                            onSubmit = {
+                                locationFix?.let {
+                                    viewModel.saveDrop(it.latitude, it.longitude)
+                                }
+                            },
+                            modifier = Modifier
+                                .padding(start = 24.dp, end = 24.dp, bottom = 112.dp)
+                        )
+                    }
+                }
         }
 
 
@@ -840,12 +936,240 @@ fun DropScreen(
             }
             
             if (uiState.isSaved && uiState.isHitchhiker) {
-                ReleaseAnimationOverlay(onComplete = onComplete)
+                ReleaseAnimationOverlay(
+                    onComplete = {
+                        viewModel.reset()
+                        onComplete()
+                    }
+                )
             }
 
             SnackbarHost(
                 hostState = snackbarHostState,
                 modifier = Modifier.align(Alignment.BottomCenter)
+            )
+
+            if (showDiscardDialog) {
+                AlertDialog(
+                    onDismissRequest = { showDiscardDialog = false },
+                    title = { Text("Discard captured photo?") },
+                    text = {
+                        Text("Your photo, message, and optional enhancements will be removed.")
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                showDiscardDialog = false
+                                viewModel.reset()
+                            }
+                        ) {
+                            Text("Discard", color = SomewhereColors.Error)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDiscardDialog = false }) {
+                            Text("Keep draft", color = SomewhereColors.TextPrimary)
+                        }
+                    },
+                    containerColor = SomewhereColors.Surface
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DropProgressHeader(step: DropCreationStep) {
+    val steps = listOf(
+        DropCreationStep.MESSAGE to "Message",
+        DropCreationStep.ENHANCEMENTS to "Enhance",
+        DropCreationStep.LOCATION to "Place"
+    )
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "Create Drop",
+            style = MaterialTheme.typography.titleLarge,
+            color = SomewhereColors.TextPrimary
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            steps.forEachIndexed { index, (itemStep, label) ->
+                val active = itemStep.ordinal <= step.ordinal
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(22.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (active) {
+                                    com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                } else {
+                                    SomewhereColors.Card
+                                }
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "${index + 1}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (active) SomewhereColors.Background else SomewhereColors.TextSecondary
+                        )
+                    }
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (active) SomewhereColors.TextPrimary else SomewhereColors.TextMuted
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LocationConfirmationContent(
+    locationFix: LocationResult?,
+    isLocating: Boolean,
+    timedOut: Boolean,
+    isOffline: Boolean,
+    onRetry: () -> Unit
+) {
+    val accuracy = locationFix?.accuracyMeters
+    val accuracyColor = when {
+        accuracy == null -> SomewhereColors.TextMuted
+        accuracy <= 10f -> SomewhereColors.AccuracyGood
+        accuracy <= LocationUtils.ACCURACY_WARNING_METERS -> SomewhereColors.AccuracyModerate
+        else -> SomewhereColors.AccuracyPoor
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = SomewhereColors.Card,
+        shape = RoundedCornerShape(16.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                "Confirm this place",
+                style = MaterialTheme.typography.titleMedium,
+                color = SomewhereColors.TextPrimary
+            )
+            when {
+                isOffline -> {
+                    Text(
+                        "You are offline. Reconnect before publishing this Drop.",
+                        color = SomewhereColors.TextSecondary
+                    )
+                }
+                isLocating -> Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(22.dp),
+                        strokeWidth = 2.dp,
+                        color = SomewhereColors.Accent
+                    )
+                    Text("Getting a precise GPS fix…", color = SomewhereColors.TextSecondary)
+                }
+                locationFix != null -> {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            Modifier
+                                .size(10.dp)
+                                .clip(CircleShape)
+                                .background(accuracyColor)
+                        )
+                        Text(
+                            text = "GPS accuracy ±${locationFix.accuracyMeters.toInt()} m",
+                            color = SomewhereColors.TextPrimary
+                        )
+                    }
+                    Text(
+                        text = if (locationFix.accuracyMeters <= LocationUtils.ACCURACY_WARNING_METERS) {
+                            "This location is ready to publish."
+                        } else {
+                            "Accuracy is low. Move into an open area or retry before publishing."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = SomewhereColors.TextSecondary
+                    )
+                }
+                timedOut -> {
+                    Text(
+                        "Location timed out. Check that precise location is enabled and try again.",
+                        color = SomewhereColors.TextSecondary
+                    )
+                    SomewhereButton(text = "Retry Location", onClick = onRetry)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DropStepActions(
+    step: DropCreationStep,
+    hasMessage: Boolean,
+    isSaving: Boolean,
+    isOffline: Boolean,
+    hasLocation: Boolean,
+    isHitchhiker: Boolean,
+    onBack: () -> Unit,
+    onContinue: () -> Unit,
+    onSubmit: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = SomewhereColors.Background,
+        tonalElevation = 6.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            if (step != DropCreationStep.MESSAGE) {
+                TextButton(
+                    onClick = onBack,
+                    modifier = Modifier.height(52.dp)
+                ) {
+                    Text("Back", color = SomewhereColors.TextSecondary)
+                }
+            }
+            SomewhereButton(
+                text = when (step) {
+                    DropCreationStep.MESSAGE -> "Continue"
+                    DropCreationStep.ENHANCEMENTS -> "Review Location"
+                    DropCreationStep.LOCATION -> when {
+                        isSaving -> "Publishing..."
+                        isHitchhiker -> "Begin Its Journey"
+                        else -> "Mark This Place"
+                    }
+                },
+                onClick = if (step == DropCreationStep.LOCATION) onSubmit else onContinue,
+                enabled = when (step) {
+                    DropCreationStep.MESSAGE -> hasMessage
+                    DropCreationStep.ENHANCEMENTS -> true
+                    DropCreationStep.LOCATION -> hasLocation && !isOffline && !isSaving
+                },
+                modifier = Modifier.weight(1f)
             )
         }
     }
