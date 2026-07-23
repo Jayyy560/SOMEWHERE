@@ -422,23 +422,19 @@ fun DropScreen(
                 modifier = Modifier.align(Alignment.BottomCenter)
             ) {
                 val hasCapturedPhoto = uiState.capturedImageUri != null
-                val bottomPadding = if (hasCapturedPhoto) 200.dp else 124.dp
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .then(
-                            if (hasCapturedPhoto) Modifier.fillMaxHeight(0.82f)
-                            else Modifier.wrapContentHeight()
-                        ),
-                    contentAlignment = Alignment.BottomCenter
+                        .wrapContentHeight()
+                        .background(SomewhereColors.Background.copy(alpha = 0.92f))
+                        .navigationBarsPadding()
+                        .padding(bottom = 104.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .then(
-                            if (hasCapturedPhoto) Modifier.fillMaxHeight()
-                            else Modifier.wrapContentHeight()
-                        )
+                        .weight(1f, fill = false)
                         .pointerInput(Unit) {
                             awaitPointerEventScope {
                                 while (true) {
@@ -447,11 +443,8 @@ fun DropScreen(
                                 }
                             }
                         }
-                    .verticalScroll(rememberScrollState())
-                    .background(SomewhereColors.Background.copy(alpha = 0.92f))
-                    // Add extra 100dp bottom padding to sit above the FloatingBottomNav ONLY when nav is visible
-                    .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = bottomPadding)
-                    .systemBarsPadding(),
+                        .verticalScroll(rememberScrollState())
+                        .padding(start = 24.dp, end = 24.dp, top = 24.dp, bottom = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -626,6 +619,27 @@ fun DropScreen(
                             )
                         }
                     }
+
+                    OutlinedButton(
+                        onClick = { showDiscardDialog = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(42.dp),
+                        shape = RoundedCornerShape(2.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            0.5.dp,
+                            SomewhereColors.CardBorder
+                        ),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Color.Transparent,
+                            contentColor = SomewhereColors.TextSecondary
+                        )
+                    ) {
+                        Text(
+                            text = "Retake photo",
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
                     }
 
                     if (uiState.creationStep == DropCreationStep.ENHANCEMENTS) {
@@ -637,27 +651,51 @@ fun DropScreen(
                     ) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Surface(
-                                color = if (!uiState.isMoment) com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor else SomewhereColors.GlassBackground,
-                                shape = CircleShape,
+                                color = Color.Transparent,
+                                shape = RoundedCornerShape(2.dp),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    width = if (!uiState.isMoment) 1.dp else 0.5.dp,
+                                    color = if (!uiState.isMoment) {
+                                        com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                    } else {
+                                        SomewhereColors.CardBorder
+                                    }
+                                ),
                                 onClick = { viewModel.setDropType(false) }
                             ) {
                                 Text(
                                     "Permanent",
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = if (!uiState.isMoment) SomewhereColors.Background else SomewhereColors.TextPrimary
+                                    color = if (!uiState.isMoment) {
+                                        com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                    } else {
+                                        SomewhereColors.TextSecondary
+                                    }
                                 )
                             }
                             Surface(
-                                color = if (uiState.isMoment) com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor else SomewhereColors.GlassBackground,
-                                shape = CircleShape,
+                                color = Color.Transparent,
+                                shape = RoundedCornerShape(2.dp),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    width = if (uiState.isMoment) 1.dp else 0.5.dp,
+                                    color = if (uiState.isMoment) {
+                                        com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                    } else {
+                                        SomewhereColors.CardBorder
+                                    }
+                                ),
                                 onClick = { viewModel.setDropType(true) }
                             ) {
                                 Text(
                                     "Moment",
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = if (uiState.isMoment) SomewhereColors.Background else SomewhereColors.TextPrimary
+                                    color = if (uiState.isMoment) {
+                                        com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                    } else {
+                                        SomewhereColors.TextSecondary
+                                    }
                                 )
                             }
                         }
@@ -688,10 +726,25 @@ fun DropScreen(
                                 TextButton(
                                     onClick = { viewModel.setDuration(ms, null) },
                                     colors = ButtonDefaults.textButtonColors(
-                                        contentColor = if (isSelected) SomewhereColors.Background else SomewhereColors.TextSecondary,
-                                        containerColor = if (isSelected) com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor else androidx.compose.ui.graphics.Color.Transparent
+                                        contentColor = if (isSelected) {
+                                            com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                        } else {
+                                            SomewhereColors.TextSecondary
+                                        },
+                                        containerColor = Color.Transparent
                                     ),
-                                    modifier = Modifier.height(28.dp),
+                                    shape = RoundedCornerShape(2.dp),
+                                    modifier = Modifier
+                                        .height(30.dp)
+                                        .border(
+                                            width = if (isSelected) 1.dp else 0.5.dp,
+                                            color = if (isSelected) {
+                                                com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                            } else {
+                                                SomewhereColors.CardBorder
+                                            },
+                                            shape = RoundedCornerShape(2.dp)
+                                        ),
                                     contentPadding = PaddingValues(horizontal = 8.dp)
                                 ) {
                                     Text(label, style = MaterialTheme.typography.labelSmall)
@@ -732,10 +785,25 @@ fun DropScreen(
                                     }.show()
                                 },
                                 colors = ButtonDefaults.textButtonColors(
-                                    contentColor = if (isCustomSelected) SomewhereColors.Background else SomewhereColors.TextSecondary,
-                                    containerColor = if (isCustomSelected) com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor else androidx.compose.ui.graphics.Color.Transparent
+                                    contentColor = if (isCustomSelected) {
+                                        com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                    } else {
+                                        SomewhereColors.TextSecondary
+                                    },
+                                    containerColor = Color.Transparent
                                 ),
-                                modifier = Modifier.height(28.dp),
+                                shape = RoundedCornerShape(2.dp),
+                                modifier = Modifier
+                                    .height(30.dp)
+                                    .border(
+                                        width = if (isCustomSelected) 1.dp else 0.5.dp,
+                                        color = if (isCustomSelected) {
+                                            com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                        } else {
+                                            SomewhereColors.CardBorder
+                                        },
+                                        shape = RoundedCornerShape(2.dp)
+                                    ),
                                 contentPadding = PaddingValues(horizontal = 8.dp)
                             ) {
                                 Text(uiState.customDurationLabel ?: "Custom", style = MaterialTheme.typography.labelSmall)
@@ -752,15 +820,27 @@ fun DropScreen(
                         items(categories) { category ->
                             val isSelected = uiState.category == category
                             Surface(
-                                color = if (isSelected) com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor else SomewhereColors.GlassBackground,
-                                shape = CircleShape,
+                                color = Color.Transparent,
+                                shape = RoundedCornerShape(2.dp),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    width = if (isSelected) 1.dp else 0.5.dp,
+                                    color = if (isSelected) {
+                                        com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                    } else {
+                                        SomewhereColors.CardBorder
+                                    }
+                                ),
                                 onClick = { viewModel.setCategory(category) }
                             ) {
                                 Text(
                                     text = category,
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = if (isSelected) SomewhereColors.Background else SomewhereColors.TextPrimary
+                                    color = if (isSelected) {
+                                        com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                    } else {
+                                        SomewhereColors.TextSecondary
+                                    }
                                 )
                             }
                         }
@@ -810,25 +890,14 @@ fun DropScreen(
                         }
                     }
 
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
+                    if (uiState.deadDropFileUri == null) {
                         SomewhereButton(
-                            text = "Retake",
-                            onClick = { showDiscardDialog = true },
-                            modifier = Modifier.weight(1f)
+                            text = "Attach File",
+                            onClick = {
+                                filePickerLauncher.launch("*/*")
+                            },
+                            modifier = Modifier.fillMaxWidth()
                         )
-
-                        if (uiState.deadDropFileUri == null) {
-                            SomewhereButton(
-                                text = "Attach File",
-                                onClick = {
-                                    filePickerLauncher.launch("*/*")
-                                },
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
                     }
 
                     HitchhikerToggleBox(
@@ -925,7 +994,7 @@ fun DropScreen(
                                 }
                             },
                             modifier = Modifier
-                                .padding(start = 24.dp, end = 24.dp, bottom = 112.dp)
+                                .padding(start = 24.dp, end = 24.dp, bottom = 8.dp)
                         )
                     }
                 }
@@ -996,38 +1065,50 @@ private fun DropProgressHeader(step: DropCreationStep) {
         )
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             steps.forEachIndexed { index, (itemStep, label) ->
-                val active = itemStep.ordinal <= step.ordinal
-                Row(
+                val isCurrent = itemStep == step
+                val isComplete = itemStep.ordinal < step.ordinal
+                val labelColor = when {
+                    isCurrent -> SomewhereColors.TextPrimary
+                    isComplete -> SomewhereColors.TextSecondary
+                    else -> SomewhereColors.TextMuted
+                }
+                Column(
                     modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(22.dp)
-                            .clip(CircleShape)
-                            .background(
-                                if (active) {
-                                    com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
-                                } else {
-                                    SomewhereColors.Card
-                                }
-                            ),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(
-                            text = "${index + 1}",
+                            text = "0${index + 1}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (active) SomewhereColors.Background else SomewhereColors.TextSecondary
+                            color = if (isCurrent) {
+                                com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                            } else {
+                                labelColor
+                            }
+                        )
+                        Text(
+                            text = label.uppercase(),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = labelColor
                         )
                     }
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = if (active) SomewhereColors.TextPrimary else SomewhereColors.TextMuted
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(if (isCurrent) 2.dp else 1.dp)
+                            .background(
+                                when {
+                                    isCurrent -> com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                    isComplete -> SomewhereColors.TextMuted
+                                    else -> SomewhereColors.CardBorder
+                                }
+                            )
                     )
                 }
             }
@@ -1134,26 +1215,54 @@ private fun DropStepActions(
     onSubmit: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = SomewhereColors.Background,
-        tonalElevation = 6.dp
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            if (step != DropCreationStep.MESSAGE) {
-                TextButton(
-                    onClick = onBack,
-                    modifier = Modifier.height(52.dp)
-                ) {
-                    Text("Back", color = SomewhereColors.TextSecondary)
-                }
+        if (step != DropCreationStep.MESSAGE) {
+            TextButton(
+                onClick = onBack,
+                modifier = Modifier.height(48.dp),
+                shape = RoundedCornerShape(2.dp),
+                colors = ButtonDefaults.textButtonColors(
+                    containerColor = Color.Transparent,
+                    contentColor = SomewhereColors.TextSecondary
+                )
+            ) {
+                Text(
+                    "Back",
+                    style = MaterialTheme.typography.labelLarge
+                )
             }
-            SomewhereButton(
+        }
+
+        val enabled = when (step) {
+            DropCreationStep.MESSAGE -> hasMessage
+            DropCreationStep.ENHANCEMENTS -> true
+            DropCreationStep.LOCATION -> hasLocation && !isOffline && !isSaving
+        }
+        OutlinedButton(
+            onClick = if (step == DropCreationStep.LOCATION) onSubmit else onContinue,
+            enabled = enabled,
+            modifier = Modifier
+                .weight(1f)
+                .height(48.dp),
+            shape = RoundedCornerShape(2.dp),
+            border = androidx.compose.foundation.BorderStroke(
+                0.5.dp,
+                if (enabled) SomewhereColors.TextSecondary else SomewhereColors.CardBorder
+            ),
+            colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = Color.Transparent,
+                contentColor = SomewhereColors.TextPrimary,
+                disabledContainerColor = Color.Transparent,
+                disabledContentColor = SomewhereColors.TextMuted
+            )
+        ) {
+            Text(
                 text = when (step) {
                     DropCreationStep.MESSAGE -> "Continue"
                     DropCreationStep.ENHANCEMENTS -> "Review Location"
@@ -1162,14 +1271,8 @@ private fun DropStepActions(
                         isHitchhiker -> "Begin Its Journey"
                         else -> "Mark This Place"
                     }
-                },
-                onClick = if (step == DropCreationStep.LOCATION) onSubmit else onContinue,
-                enabled = when (step) {
-                    DropCreationStep.MESSAGE -> hasMessage
-                    DropCreationStep.ENHANCEMENTS -> true
-                    DropCreationStep.LOCATION -> hasLocation && !isOffline && !isSaving
-                },
-                modifier = Modifier.weight(1f)
+                }.uppercase(),
+                style = MaterialTheme.typography.labelLarge
             )
         }
     }
