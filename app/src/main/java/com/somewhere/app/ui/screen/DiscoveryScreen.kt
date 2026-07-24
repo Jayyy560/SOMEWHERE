@@ -189,7 +189,6 @@ fun DiscoveryScreen(
             var arAvailabilityCheck by remember { mutableIntStateOf(0) }
             var fallbackCameraError by remember { mutableStateOf<String?>(null) }
             var fallbackCameraRetryKey by remember { mutableIntStateOf(0) }
-            val activity = context as? android.app.Activity
 
             DisposableEffect(lifecycleOwner) {
                 val arResumeObserver = LifecycleEventObserver { _, event ->
@@ -204,48 +203,55 @@ fun DiscoveryScreen(
             }
 
             LaunchedEffect(arAvailabilityCheck) {
-                val apk = com.google.ar.core.ArCoreApk.getInstance()
-                // Poll until the availability result is no longer transient (cold start can take >1s)
-                var availability = apk.checkAvailability(context)
-                var tries = 0
-                while (availability.isTransient && tries < 15) {
-                    kotlinx.coroutines.delay(200)
-                    availability = apk.checkAvailability(context)
-                    tries++
-                }
-                when (availability) {
-                    com.google.ar.core.ArCoreApk.Availability.SUPPORTED_INSTALLED -> {
-                        try {
-                            // Test if the session can actually be created to catch false-positives
-                            val session = com.google.ar.core.Session(context)
-                            session.close()
-                            arCoreSupported = true
-                        } catch (e: Exception) {
-                            arCoreSupported = false
-                        }
+                try {
+                    val apk = com.google.ar.core.ArCoreApk.getInstance()
+                    // Poll until the availability result is no longer transient (cold start can take >1s).
+                    var availability = apk.checkAvailability(context)
+                    var tries = 0
+                    while (availability.isTransient && tries < 15) {
+                        kotlinx.coroutines.delay(200)
+                        availability = apk.checkAvailability(context)
+                        tries++
                     }
-                    com.google.ar.core.ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED,
-                    com.google.ar.core.ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD -> {
-                        // Device supports AR but the ARCore app is missing/old — prompt to install.
-                        if (activity != null) {
+                    when (availability) {
+                        com.google.ar.core.ArCoreApk.Availability.SUPPORTED_INSTALLED -> {
+                            var session: com.google.ar.core.Session? = null
                             try {
-                                when (apk.requestInstall(activity, true)) {
-                                    com.google.ar.core.ArCoreApk.InstallStatus.INSTALLED ->
-                                        arCoreSupported = true
-                                    com.google.ar.core.ArCoreApk.InstallStatus.INSTALL_REQUESTED ->
-                                        Unit // wait for resume
-                                }
+                                session = com.google.ar.core.Session(context)
+                                // Basic ARCore support does not imply Geospatial support.
+                                // Configuring an unsupported device throws UnsupportedConfigurationException.
+                                arCoreSupported = session.isGeospatialModeSupported(
+                                    com.google.ar.core.Config.GeospatialMode.ENABLED
+                                )
                             } catch (e: Exception) {
+                                android.util.Log.w(
+                                    "DiscoveryScreen",
+                                    "ARCore preflight failed; using CameraX",
+                                    e
+                                )
                                 arCoreSupported = false
+                            } finally {
+                                runCatching { session?.close() }
                             }
-                        } else {
+                        }
+                        com.google.ar.core.ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED,
+                        com.google.ar.core.ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD -> {
+                            // Discovery remains usable through CameraX. Do not unexpectedly
+                            // leave the app to launch the ARCore installation flow.
+                            arCoreSupported = false
+                        }
+                        else -> {
+                            // Unsupported, unknown, or still transient: use the camera fallback.
                             arCoreSupported = false
                         }
                     }
-                    else -> {
-                        // UNSUPPORTED_DEVICE_NOT_CAPABLE / UNKNOWN_ERROR / UNKNOWN_CHECKING / etc.
-                        arCoreSupported = false
-                    }
+                } catch (e: Exception) {
+                    android.util.Log.w(
+                        "DiscoveryScreen",
+                        "ARCore availability check failed; using CameraX",
+                        e
+                    )
+                    arCoreSupported = false
                 }
             }
 
@@ -263,12 +269,34 @@ fun DiscoveryScreen(
                     AndroidView(
                         modifier = Modifier.fillMaxSize(),
                         factory = { ctx ->
-                            ARSceneView(ctx).apply {
-                                planeRenderer.isVisible = false
-                                configureSession { session, config ->
-                                    config.geospatialMode = com.google.ar.core.Config.GeospatialMode.ENABLED
-                                }
-                                onSessionUpdated = { session, frame ->
+                            try {
+                                ARSceneView(ctx).apply {
+                                    planeRenderer.isVisible = false
+                                    onSessionFailed = { exception ->
+                                        android.util.Log.w(
+                                            "DiscoveryScreen",
+                                            "AR session failed; switching to CameraX",
+                                            exception
+                                        )
+                                        arCoreSupported = false
+                                    }
+                                    configureSession { session, config ->
+                                        if (
+                                            session.isGeospatialModeSupported(
+                                                com.google.ar.core.Config.GeospatialMode.ENABLED
+                                            )
+                                        ) {
+                                            config.geospatialMode =
+                                                com.google.ar.core.Config.GeospatialMode.ENABLED
+                                        } else {
+                                            android.util.Log.i(
+                                                "DiscoveryScreen",
+                                                "Geospatial mode unavailable; switching to CameraX"
+                                            )
+                                            arCoreSupported = false
+                                        }
+                                    }
+                                    onSessionUpdated = { session, frame ->
                                     val cameraPose = frame.camera.pose
                                     
                                     val earth = session.earth
@@ -312,7 +340,16 @@ fun DiscoveryScreen(
                                         
                                         cameraPos = cameraPose.translation.copyOf()
                                     }
+                                    }
                                 }
+                            } catch (e: Exception) {
+                                android.util.Log.w(
+                                    "DiscoveryScreen",
+                                    "AR scene creation failed; switching to CameraX",
+                                    e
+                                )
+                                arCoreSupported = false
+                                android.view.View(ctx)
                             }
                         }
                     )
@@ -427,12 +464,11 @@ fun DiscoveryScreen(
 
                                 val cameraProviderFuture = androidx.camera.lifecycle.ProcessCameraProvider.getInstance(ctx)
                                 cameraProviderFuture.addListener({
-                                    val cameraProvider = cameraProviderFuture.get()
-                                    val preview = androidx.camera.core.Preview.Builder().build().also {
-                                        it.surfaceProvider = previewView.surfaceProvider
-                                    }
-
                                     try {
+                                        val cameraProvider = cameraProviderFuture.get()
+                                        val preview = androidx.camera.core.Preview.Builder().build().also {
+                                            it.surfaceProvider = previewView.surfaceProvider
+                                        }
                                         cameraProvider.unbindAll()
                                         cameraProvider.bindToLifecycle(
                                             lifecycleOwner,
@@ -441,7 +477,11 @@ fun DiscoveryScreen(
                                         )
                                         fallbackCameraError = null
                                     } catch (e: Exception) {
-                                        e.printStackTrace()
+                                        android.util.Log.w(
+                                            "DiscoveryScreen",
+                                            "CameraX fallback failed",
+                                            e
+                                        )
                                         fallbackCameraError = "Camera is unavailable. Close other camera apps and retry."
                                     }
                                 }, androidx.core.content.ContextCompat.getMainExecutor(ctx))
