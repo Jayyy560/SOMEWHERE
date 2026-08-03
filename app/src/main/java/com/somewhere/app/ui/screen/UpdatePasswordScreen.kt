@@ -8,6 +8,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.somewhere.app.ui.component.SomewhereButton
 import com.somewhere.app.ui.theme.SomewhereColors
 import kotlinx.coroutines.launch
 
@@ -22,12 +23,15 @@ fun UpdatePasswordScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
-    val ambient = com.somewhere.app.ui.theme.LocalAmbientColors.current
-
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Update Required") },
+                title = {
+                    Text(
+                        "Update required",
+                        style = MaterialTheme.typography.headlineMedium
+                    )
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = SomewhereColors.Background,
                     titleContentColor = SomewhereColors.TextPrimary
@@ -84,20 +88,21 @@ fun UpdatePasswordScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            Button(
+            SomewhereButton(
+                text = if (isLoading) "Updating..." else "Update Password",
                 onClick = {
                     if (password.length < 8 || password.length > 64) {
                         errorMessage = "Password must be 8-64 characters"
-                        return@Button
+                        return@SomewhereButton
                     }
                     if (!password.any { it.isUpperCase() } || !password.any { it.isLowerCase() } ||
                         !password.any { it.isDigit() } || !password.any { !it.isLetterOrDigit() }) {
                         errorMessage = "Password must contain uppercase, lowercase, number, and symbol"
-                        return@Button
+                        return@SomewhereButton
                     }
                     if (password != confirmPassword) {
                         errorMessage = "Passwords do not match"
-                        return@Button
+                        return@SomewhereButton
                     }
 
                     errorMessage = null
@@ -115,15 +120,9 @@ fun UpdatePasswordScreen(
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = ambient.pulseColor),
+                minWidth = 0.dp,
                 enabled = !isLoading
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = SomewhereColors.Background)
-                } else {
-                    Text("Update Password", color = SomewhereColors.Background)
-                }
-            }
+            )
 
             Spacer(modifier = Modifier.height(16.dp))
 

@@ -8,11 +8,30 @@ import kotlin.math.*
 object LocationUtils {
 
     const val DISCOVERY_RADIUS = 500f   // meters — max radius to show drops
-    const val UNLOCK_RADIUS = 30f       // meters — drops become tappable within this (generous to handle GPS drift)
+    const val UNLOCK_RADIUS = 30f       // physical unlock radius before GPS uncertainty is considered
+    const val MAX_UNLOCK_ACCURACY_BUFFER = 25f // prevents a poor fix from unlocking Drops too far away
     const val MAX_VISIBLE = 15          // max overlays shown at once
     const val ACCURACY_WARNING_METERS = 35f
     const val HYSTERESIS_MARGIN = 20f   // extra meters before removing a visible drop
     const val CO_LOCATED_METERS = 15f   // drops closer than this are fanned out deterministically
+
+    /**
+     * GPS coordinates describe an uncertainty area, not an exact point. Add a
+     * bounded portion of the current fix's reported accuracy to the physical
+     * unlock radius so two noisy readings from the same place do not lock each
+     * other out. The cap prevents very poor fixes from creating a huge radius.
+     */
+    fun effectiveUnlockRadius(accuracyMeters: Float?): Float {
+        val accuracyBuffer = accuracyMeters
+            ?.takeIf { it.isFinite() && it > 0f }
+            ?.coerceAtMost(MAX_UNLOCK_ACCURACY_BUFFER)
+            ?: 0f
+        return UNLOCK_RADIUS + accuracyBuffer
+    }
+
+    fun isWithinUnlockRange(distanceMeters: Float, accuracyMeters: Float?): Boolean {
+        return distanceMeters <= effectiveUnlockRadius(accuracyMeters)
+    }
 
     /**
      * Haversine distance between two GPS points in meters.

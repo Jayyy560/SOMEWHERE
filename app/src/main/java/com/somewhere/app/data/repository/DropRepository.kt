@@ -25,8 +25,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.jsonPrimitive
@@ -50,6 +53,7 @@ class DropRepository(
 
     private val dropChangeEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val dropChanges: SharedFlow<Unit> = dropChangeEvents.asSharedFlow()
+    private val commentChangeEvents = MutableSharedFlow<String>(extraBufferCapacity = 16)
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val allDrops: Flow<List<Drop>> = SupabaseManager.client.auth.sessionStatus
@@ -593,7 +597,12 @@ class DropRepository(
         }
         channel.subscribe()
         try {
-            changes.collect {
+            merge(
+                changes.map { Unit },
+                commentChangeEvents
+                    .filter { changedDropId -> changedDropId == dropId }
+                    .map { Unit }
+            ).collect {
                 emit(getComments(dropId))
             }
         } finally {
@@ -672,24 +681,39 @@ class DropRepository(
         }.getOrDefault(emptyList())
     }
 
-    suspend fun addComment(drop: Drop, text: String) {
-        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return
+    suspend fun addComment(drop: Drop, text: String): DropComment? {
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return null
 
         val currentName = currentUser.userMetadata?.get("name")?.jsonPrimitive?.content ?: "Anonymous"
         val currentAvatar = currentUser.userMetadata?.get("avatar_url")?.jsonPrimitive?.content
-        runCatching {
-            SupabaseManager.client.postgrest["drop_comments"].insert(
-                com.somewhere.app.data.remote.DropComment(
-                    id = java.util.UUID.randomUUID().toString(),
-                    userId = currentUser.id,
-                    dropId = drop.id,
-                    authorName = currentName,
-                    authorAvatarUrl = currentAvatar,
-                    text = text
-                )
-            )
+        val comment = DropComment(
+            id = UUID.randomUUID().toString(),
+            userId = currentUser.id,
+            dropId = drop.id,
+            authorName = currentName,
+            authorAvatarUrl = currentAvatar,
+            text = text.trim()
+        )
 
-            // Send Notification
+        val inserted = runCatching {
+            SupabaseManager.client.postgrest["drop_comments"].insert(
+                comment
+            )
+            comment
+        }.getOrElse {
+            println("!!! CRITICAL BACKEND ERROR IN ADDCOMMENT: ${it.message}")
+            it.printStackTrace()
+            android.util.Log.e("DropRepository", "Failed to add comment: ${it.message}", it)
+            return null
+        }
+
+        // Keep every currently open sheet in sync without waiting for the
+        // database Realtime event to make a round trip back to this device.
+        commentChangeEvents.emit(drop.id)
+
+        // Notification delivery is secondary. A notification failure must not
+        // turn a successfully inserted comment into a failed post.
+        runCatching {
             if (drop.authorId != null && drop.authorId != currentUser.id) {
                 SupabaseManager.client.postgrest["notifications"].insert(
                     com.somewhere.app.data.remote.NotificationItem(
@@ -703,10 +727,10 @@ class DropRepository(
                 )
             }
         }.onFailure {
-            println("!!! CRITICAL BACKEND ERROR IN ADDCOMMENT: ${it.message}")
-            it.printStackTrace()
-            android.util.Log.e("DropRepository", "Failed to add comment: ${it.message}", it)
+            android.util.Log.w("DropRepository", "Comment notification failed", it)
         }
+
+        return inserted
     }
 
     suspend fun unlockDrop(dropId: String): Boolean {

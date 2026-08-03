@@ -42,6 +42,7 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import com.somewhere.app.ui.component.SomewhereButton
+import com.somewhere.app.ui.component.SomewhereButtonHierarchy
 import androidx.compose.material.icons.Icons
 import androidx.compose.animation.togetherWith
 import kotlinx.coroutines.launch
@@ -190,19 +191,16 @@ fun ProfileScreen(
                 
                 Spacer(modifier = Modifier.height(8.dp))
                 
-                androidx.compose.material3.OutlinedButton(
+                SomewhereButton(
+                    text = "Edit Profile",
                     onClick = { 
                         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                         showEditProfile = true 
                     },
-                    modifier = Modifier.heightIn(min = 48.dp),
-                    colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                        contentColor = SomewhereColors.TextPrimary
-                    ),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, SomewhereColors.TextMuted)
-                ) {
-                    Text("Edit Profile", style = MaterialTheme.typography.labelMedium)
-                }
+                    minWidth = 0.dp,
+                    height = 48.dp,
+                    hierarchy = SomewhereButtonHierarchy.Secondary
+                )
                 
                 Spacer(modifier = Modifier.height(16.dp))
                 

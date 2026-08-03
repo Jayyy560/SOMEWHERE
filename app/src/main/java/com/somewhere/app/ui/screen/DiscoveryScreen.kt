@@ -9,6 +9,7 @@ import androidx.camera.view.PreviewView
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -360,8 +361,16 @@ fun DiscoveryScreen(
                     if (currentViewMatrix != null && currentProjMatrix != null) {
                         val halfCardWidthPx = with(density) { 80.dp.toPx().toInt() }
                         val halfCardHeightPx = with(density) { 50.dp.toPx().toInt() }
+                        val minHorizontalSpacingPx = with(density) { 88.dp.toPx() }
+                        val minVerticalSpacingPx = with(density) { 56.dp.toPx() }
+                        val occupiedScreenPositions = mutableListOf<Pair<Float, Float>>()
+                        var renderedOverlayCount = 0
+                        val maxReadableArOverlays = 6
 
-                        uiState.nearbyDrops.forEach { item ->
+                        visibleDrops.forEach { item ->
+                            if (renderedOverlayCount >= maxReadableArOverlays) {
+                                return@forEach
+                            }
                             if (item.drop.id in hiddenDropIds) return@forEach
 
                             val worldPos = com.somewhere.app.util.ARUtils.getWorldPosition(item.drop.id)
@@ -372,6 +381,19 @@ fun DiscoveryScreen(
                                 )
 
                                 if (screenPos != null) {
+                                    val collidesWithVisibleCard =
+                                        occupiedScreenPositions.any { occupied ->
+                                            kotlin.math.abs(occupied.first - screenPos.first) <
+                                                minHorizontalSpacingPx &&
+                                                kotlin.math.abs(occupied.second - screenPos.second) <
+                                                minVerticalSpacingPx
+                                        }
+                                    if (collidesWithVisibleCard) {
+                                        return@forEach
+                                    }
+                                    occupiedScreenPositions += screenPos
+                                    renderedOverlayCount++
+
                                     val dx = cameraPos[0] - worldPos[0]
                                     val dy = cameraPos[1] - worldPos[1]
                                     val dz = cameraPos[2] - worldPos[2]
@@ -632,8 +654,10 @@ fun DiscoveryScreen(
                 IconButton(
                     onClick = onBack,
                     modifier = Modifier
-                        .clip(CircleShape)
-                        .background(SomewhereColors.GlassBackground)
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color.Transparent)
+                        .border(0.5.dp, SomewhereColors.CardBorder, RoundedCornerShape(2.dp))
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -646,9 +670,10 @@ fun DiscoveryScreen(
                 IconButton(
                     onClick = { showListView = !showListView },
                     modifier = Modifier
-                        .clip(CircleShape)
-                        .background(SomewhereColors.GlassBackground)
-                        .padding(4.dp)
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(Color.Transparent)
+                        .border(0.5.dp, SomewhereColors.CardBorder, RoundedCornerShape(2.dp))
                 ) {
                     Icon(
                         imageVector = if (showListView) Icons.Default.Map else Icons.Default.List,
@@ -669,8 +694,12 @@ fun DiscoveryScreen(
                     .padding(top = 16.dp)
             ) {
                 Surface(
-                    color = SomewhereColors.GlassBackground,
-                    shape = CircleShape,
+                    color = Color.Transparent,
+                    shape = RoundedCornerShape(2.dp),
+                    border = androidx.compose.foundation.BorderStroke(
+                        0.5.dp,
+                        SomewhereColors.CardBorder
+                    ),
                     onClick = { categoryExpanded = true }
                 ) {
                     Row(
@@ -732,39 +761,52 @@ fun DiscoveryScreen(
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Button(
+                        SomewhereButton(
+                            text = "Summary",
                             enabled = networkStatus == NetworkStatus.AVAILABLE && !uiState.isSummarizing,
                             onClick = { 
                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                 viewModel.summarizePlace() 
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = SomewhereColors.GlassBackground),
-                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
-                        ) {
-                            Icon(Icons.Default.AutoAwesome, contentDescription = "AI", modifier = Modifier.size(16.dp), tint = ambient.pulseColor)
-                            Spacer(Modifier.width(6.dp))
-                            Text("Summary", color = SomewhereColors.TextPrimary, style = MaterialTheme.typography.labelMedium)
-                        }
+                            minWidth = 0.dp,
+                            height = 48.dp,
+                            modifier = Modifier.width(142.dp),
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = ambient.pulseColor
+                                )
+                            }
+                        )
 
-                        Button(
+                        SomewhereButton(
+                            text = "Whisper",
                             enabled = networkStatus == NetworkStatus.AVAILABLE && !uiState.isCurating,
                             onClick = { 
                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                 viewModel.curateDrop() 
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = SomewhereColors.GlassBackground),
-                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
-                        ) {
-                            Icon(Icons.Default.Hearing, contentDescription = "Whisper", modifier = Modifier.size(16.dp), tint = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor)
-                            Spacer(Modifier.width(6.dp))
-                            Text("Whisper", color = SomewhereColors.TextPrimary, style = MaterialTheme.typography.labelMedium)
-                        }
+                            minWidth = 0.dp,
+                            height = 48.dp,
+                            modifier = Modifier.width(142.dp),
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.Hearing,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = ambient.pulseColor
+                                )
+                            }
+                        )
                     }
 
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
+                            .clip(RoundedCornerShape(2.dp))
                             .background(SomewhereColors.GlassBackground)
+                            .border(0.5.dp, SomewhereColors.CardBorder, RoundedCornerShape(2.dp))
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) {
                         Text(
@@ -790,7 +832,7 @@ fun DiscoveryScreen(
                         .statusBarsPadding()
                         .padding(top = 76.dp),
                     color = SomewhereColors.Card,
-                    shape = RoundedCornerShape(12.dp)
+                    shape = RoundedCornerShape(2.dp)
                 ) {
                     Row(
                         modifier = Modifier.padding(start = 14.dp, end = 6.dp),
@@ -1004,9 +1046,9 @@ private fun CompassHud(
                 else -> SomewhereColors.AccuracyPoor
             }
             val accuracyLabel = when {
-                accuracy <= 10f -> "±${accuracy.toInt()}m"
-                accuracy <= LocationUtils.ACCURACY_WARNING_METERS -> "±${accuracy.toInt()}m"
-                else -> "low ±${accuracy.toInt()}m"
+                accuracy <= LocationUtils.ACCURACY_WARNING_METERS ->
+                    "~${accuracy.toInt()}m accuracy"
+                else -> "low · ~${accuracy.toInt()}m accuracy"
             }
 
             Row(

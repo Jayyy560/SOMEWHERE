@@ -154,7 +154,15 @@ class DiscoveryViewModel @Inject constructor(
         try {
             // Fetch immediately so stationary emulators/devices don't hang waiting for an update
             // Use getCurrentLocation instead of lastLocation to ensure high accuracy matching the DropScreen
-            fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, com.google.android.gms.tasks.CancellationTokenSource().token)
+            val currentLocationRequest = CurrentLocationRequest.Builder()
+                .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+                .setMaxUpdateAgeMillis(0)
+                .setDurationMillis(10_000)
+                .build()
+            fusedLocationClient.getCurrentLocation(
+                currentLocationRequest,
+                com.google.android.gms.tasks.CancellationTokenSource().token
+            )
                 .addOnSuccessListener { location ->
                     if (location != null) {
                         _uiState.update { it.copy(
@@ -216,7 +224,7 @@ class DiscoveryViewModel @Inject constructor(
         _uiState.update { it.copy(selectedDrop = drop) }
         
         // Record unlock in backend
-        if (drop != null && !drop.isUnlocked) {
+        if (drop != null && drop.isUnlocked) {
             viewModelScope.launch {
                 repository.unlockDrop(drop.drop.id)
             }
@@ -340,6 +348,7 @@ class DiscoveryViewModel @Inject constructor(
             }
 
             val previousIds = _uiState.value.nearbyDrops.map { it.drop.id }.toSet()
+            val locationAccuracy = _uiState.value.locationAccuracyMeters
 
             val discovered = filtered.mapIndexed { index, (drop, distance) ->
                 val bearing = LocationUtils.bearing(lat, lon, drop.latitude, drop.longitude)
@@ -351,7 +360,10 @@ class DiscoveryViewModel @Inject constructor(
                 DiscoveredDrop(
                     drop = drop,
                     distanceMeters = distance,
-                    isUnlocked = distance <= LocationUtils.UNLOCK_RADIUS,
+                    isUnlocked = LocationUtils.isWithinUnlockRange(
+                        distance,
+                        locationAccuracy
+                    ),
                     angleDegrees = angle,
                     isPrimary = index == 0, // closest is primary
                     isNewlyDiscovered = isNew
@@ -396,7 +408,10 @@ class DiscoveryViewModel @Inject constructor(
 
             item.copy(
                 distanceMeters = dist,
-                isUnlocked = dist <= LocationUtils.UNLOCK_RADIUS,
+                isUnlocked = LocationUtils.isWithinUnlockRange(
+                    dist,
+                    state.locationAccuracyMeters
+                ),
                 angleDegrees = angle,
                 isNewlyDiscovered = false
             )

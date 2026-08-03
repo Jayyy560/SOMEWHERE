@@ -12,8 +12,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
 import com.somewhere.app.ui.theme.SomewhereColors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -28,11 +26,8 @@ fun SomewhereTopAppBar(
         modifier = modifier,
         title = {
             Text(
-                text = title.uppercase(),
-                style = MaterialTheme.typography.labelLarge.copy(
-                    letterSpacing = 2.sp,
-                    fontWeight = FontWeight.Bold
-                ),
+                text = title,
+                style = MaterialTheme.typography.headlineMedium,
                 color = SomewhereColors.TextPrimary
             )
         },

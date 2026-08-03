@@ -41,7 +41,6 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
@@ -656,7 +655,7 @@ fun DropScreen(
                                 border = androidx.compose.foundation.BorderStroke(
                                     width = if (!uiState.isMoment) 1.dp else 0.5.dp,
                                     color = if (!uiState.isMoment) {
-                                        com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                        SomewhereColors.TextPrimary
                                     } else {
                                         SomewhereColors.CardBorder
                                     }
@@ -668,7 +667,7 @@ fun DropScreen(
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (!uiState.isMoment) {
-                                        com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                        SomewhereColors.TextPrimary
                                     } else {
                                         SomewhereColors.TextSecondary
                                     }
@@ -680,7 +679,7 @@ fun DropScreen(
                                 border = androidx.compose.foundation.BorderStroke(
                                     width = if (uiState.isMoment) 1.dp else 0.5.dp,
                                     color = if (uiState.isMoment) {
-                                        com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                        SomewhereColors.TextPrimary
                                     } else {
                                         SomewhereColors.CardBorder
                                     }
@@ -692,7 +691,7 @@ fun DropScreen(
                                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (uiState.isMoment) {
-                                        com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                        SomewhereColors.TextPrimary
                                     } else {
                                         SomewhereColors.TextSecondary
                                     }
@@ -701,14 +700,22 @@ fun DropScreen(
                         }
                         
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Ghost", style = MaterialTheme.typography.labelSmall, color = if (uiState.isAnonymous) com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor else SomewhereColors.TextMuted)
+                            Text(
+                                "Ghost",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (uiState.isAnonymous) {
+                                    SomewhereColors.TextPrimary
+                                } else {
+                                    SomewhereColors.TextMuted
+                                }
+                            )
                             Switch(
                                 checked = uiState.isAnonymous,
                                 onCheckedChange = { viewModel.setAnonymous(it) },
                                 modifier = Modifier.scale(0.7f).padding(start = 4.dp),
                                 colors = SwitchDefaults.colors(
                                     checkedThumbColor = SomewhereColors.Background,
-                                    checkedTrackColor = com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                    checkedTrackColor = SomewhereColors.TextPrimary
                                 )
                             )
                         }
@@ -727,7 +734,7 @@ fun DropScreen(
                                     onClick = { viewModel.setDuration(ms, null) },
                                     colors = ButtonDefaults.textButtonColors(
                                         contentColor = if (isSelected) {
-                                            com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                            SomewhereColors.TextPrimary
                                         } else {
                                             SomewhereColors.TextSecondary
                                         },
@@ -739,7 +746,7 @@ fun DropScreen(
                                         .border(
                                             width = if (isSelected) 1.dp else 0.5.dp,
                                             color = if (isSelected) {
-                                                com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                                SomewhereColors.TextPrimary
                                             } else {
                                                 SomewhereColors.CardBorder
                                             },
@@ -786,7 +793,7 @@ fun DropScreen(
                                 },
                                 colors = ButtonDefaults.textButtonColors(
                                     contentColor = if (isCustomSelected) {
-                                        com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                        SomewhereColors.TextPrimary
                                     } else {
                                         SomewhereColors.TextSecondary
                                     },
@@ -798,7 +805,7 @@ fun DropScreen(
                                     .border(
                                         width = if (isCustomSelected) 1.dp else 0.5.dp,
                                         color = if (isCustomSelected) {
-                                            com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                            SomewhereColors.TextPrimary
                                         } else {
                                             SomewhereColors.CardBorder
                                         },
@@ -825,7 +832,7 @@ fun DropScreen(
                                 border = androidx.compose.foundation.BorderStroke(
                                     width = if (isSelected) 1.dp else 0.5.dp,
                                     color = if (isSelected) {
-                                        com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                        SomewhereColors.TextPrimary
                                     } else {
                                         SomewhereColors.CardBorder
                                     }
@@ -837,7 +844,7 @@ fun DropScreen(
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = if (isSelected) {
-                                        com.somewhere.app.ui.theme.LocalAmbientColors.current.pulseColor
+                                        SomewhereColors.TextPrimary
                                     } else {
                                         SomewhereColors.TextSecondary
                                     }
@@ -911,10 +918,8 @@ fun DropScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = "Release as a Hitchhiker",
-                                    style = MaterialTheme.typography.bodyLarge.copy(
-                                        fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
-                                        color = SomewhereColors.AccentPurple
-                                    )
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = SomewhereColors.TextPrimary
                                 )
                                 Text(
                                     text = "Anyone can carry this Drop to new locations. Its journey will be recorded forever.",
@@ -936,7 +941,7 @@ fun DropScreen(
                                 modifier = Modifier.scale(0.7f),
                                 colors = androidx.compose.material3.SwitchDefaults.colors(
                                     checkedThumbColor = Color.White,
-                                    checkedTrackColor = Color(0xFF6A0DAD)
+                                    checkedTrackColor = SomewhereColors.TextPrimary
                                 )
                             )
                         }
@@ -1176,7 +1181,7 @@ private fun LocationConfirmationContent(
                                 .background(accuracyColor)
                         )
                         Text(
-                            text = "GPS accuracy ±${locationFix.accuracyMeters.toInt()} m",
+                            text = "Location accurate to about ${locationFix.accuracyMeters.toInt()} m",
                             color = SomewhereColors.TextPrimary
                         )
                     }
@@ -1494,7 +1499,12 @@ private fun getCurrentLocation(
     try {
         val client = LocationServices.getFusedLocationProviderClient(context)
         val cancellationTokenSource = CancellationTokenSource()
-        client.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cancellationTokenSource.token)
+        val request = com.google.android.gms.location.CurrentLocationRequest.Builder()
+            .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+            .setMaxUpdateAgeMillis(0)
+            .setDurationMillis(10_000)
+            .build()
+        client.getCurrentLocation(request, cancellationTokenSource.token)
             .addOnSuccessListener { location ->
                 if (location != null) {
                     onLocation(
@@ -1523,62 +1533,20 @@ fun HitchhikerToggleBox(
     onToggle: (Boolean) -> Unit,
     content: @Composable () -> Unit
 ) {
-    val infiniteTransition = rememberInfiniteTransition()
-    val time by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1000f,
-        animationSpec = infiniteRepeatable(tween(10000, easing = LinearEasing))
-    )
-    val colorPhase by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(2000, easing = LinearEasing), repeatMode = RepeatMode.Reverse)
-    )
-
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(2.dp))
             .clickable(role = androidx.compose.ui.semantics.Role.Switch) { onToggle(!isHitchhiker) }
-            .then(
-                if (isHitchhiker) {
-                    Modifier
-                        .drawBehind {
-                            val seed = 12345
-                            val random = java.util.Random(seed.toLong())
-                            val particleCount = 20
-                            
-                            for (i in 0 until particleCount) {
-                                val speed = random.nextFloat() * 1.5f + 0.5f
-                                val startX = random.nextFloat() * size.width
-                                val startY = random.nextFloat() * size.height
-                                
-                                // Calculate current position based on time
-                                val currentY = (startY - time * speed) % size.height
-                                val y = if (currentY < 0) size.height + currentY else currentY
-                                
-                                val pSize = random.nextFloat() * 4f + 2f
-                                
-                                // Pulse alpha
-                                val alpha = (Math.sin(time * 0.05 + i).toFloat() * 0.5f + 0.5f) * 0.6f
-                                
-                                drawCircle(
-                                    color = SomewhereColors.AccentPurple.copy(alpha = alpha),
-                                    radius = pSize,
-                                    center = androidx.compose.ui.geometry.Offset(startX, y)
-                                )
-                            }
-                        }
-                        .border(
-                            width = 1.dp,
-                            color = SomewhereColors.AccentPurple.copy(alpha = 0.5f + colorPhase * 0.5f),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        .background(Color(0xFF6A0DAD).copy(alpha = 0.1f))
+            .border(
+                width = if (isHitchhiker) 1.dp else 0.5.dp,
+                color = if (isHitchhiker) {
+                    SomewhereColors.TextPrimary
                 } else {
-                    Modifier
-                }
+                    SomewhereColors.CardBorder
+                },
+                shape = RoundedCornerShape(2.dp)
             )
             .padding(12.dp)
     ) {
@@ -1660,7 +1628,7 @@ fun ReleaseAnimationOverlay(onComplete: () -> Unit) {
         if (textAlpha.value > 0f) {
             Text(
                 text = "Hitchhiker Released.",
-                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                style = MaterialTheme.typography.headlineMedium,
                 color = Color.White,
                 modifier = Modifier.graphicsLayer { alpha = textAlpha.value }
             )

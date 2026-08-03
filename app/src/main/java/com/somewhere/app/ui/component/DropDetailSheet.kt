@@ -8,9 +8,11 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -68,6 +70,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
@@ -84,6 +87,7 @@ import kotlin.math.roundToInt
 import kotlin.math.abs
 import kotlin.math.sin
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import io.github.jan.supabase.gotrue.auth
 
 import androidx.compose.material3.AlertDialog
@@ -110,6 +114,7 @@ fun DropDetailSheet(
     var expanded by remember { mutableStateOf(false) }
     var isHoldingPhoto by remember { mutableStateOf(false) }
     val reduceMotion = rememberReduceMotionEnabled()
+    val longPressTimeoutMillis = LocalViewConfiguration.current.longPressTimeoutMillis
     val scope = rememberCoroutineScope()
     val dragOffsetAnim = remember { androidx.compose.animation.core.Animatable(0f) }
     var player by remember { mutableStateOf<MediaPlayer?>(null) }
@@ -132,6 +137,7 @@ fun DropDetailSheet(
     var likeCount by remember { mutableStateOf(0) }
     var comments by remember { mutableStateOf<List<DropComment>>(emptyList()) }
     var commentText by remember { mutableStateOf("") }
+    var isPostingComment by remember { mutableStateOf(false) }
     var isDownloading by remember { mutableStateOf(false) }
 
     LaunchedEffect(drop.id) {
@@ -238,24 +244,34 @@ fun DropDetailSheet(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onPress = {
+                    .pointerInput(drop.id, longPressTimeoutMillis) {
+                        awaitEachGesture {
+                            awaitFirstDown(requireUnconsumed = false)
+
+                            // A normal tap or an early release does nothing.
+                            // Preview starts only after Android's long-press timeout.
+                            val completedBeforeLongPress =
+                                withTimeoutOrNull(longPressTimeoutMillis) {
+                                    waitForUpOrCancellation()
+                                    true
+                                } ?: false
+
+                            if (!completedBeforeLongPress) {
                                 isHoldingPhoto = true
                                 try {
-                                    tryAwaitRelease()
+                                    waitForUpOrCancellation()
                                 } finally {
                                     isHoldingPhoto = false
                                 }
                             }
-                        )
+                        }
                     }
             ) {
                 AsyncImage(
                     model = drop.imageUrl,
                     contentDescription = "Drop Image",
                     modifier = Modifier.fillMaxWidth().aspectRatio(3f / 4f),
-                    contentScale = ContentScale.Crop
+                    contentScale = if (isHoldingPhoto) ContentScale.Fit else ContentScale.Crop
                 )
             }
 
@@ -298,6 +314,12 @@ fun DropDetailSheet(
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
                     .background(GlassPanelBg)
+                    // Own the panel's empty touch area so presses cannot pass
+                    // through to the photo preview gesture underneath it.
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() }
+                    ) {}
             ) {
                 // Author + text + meta
                 Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
@@ -557,16 +579,48 @@ fun DropDetailSheet(
                         )
                     )
                     Spacer(Modifier.width(6.dp))
-                    IconButton(onClick = {
-                        if (commentText.isNotBlank()) {
-                            scope.launch {
-                                try { repository.addComment(drop, commentText); commentText = "" }
-                                catch (e: Exception) { android.widget.Toast.makeText(context, "Failed", android.widget.Toast.LENGTH_SHORT).show() }
+                    IconButton(
+                        enabled = commentText.isNotBlank() && !isPostingComment,
+                        onClick = {
+                            val submittedText = commentText.trim()
+                            if (submittedText.isNotEmpty()) {
+                                isPostingComment = true
+                                scope.launch {
+                                    val addedComment = repository.addComment(drop, submittedText)
+                                    if (addedComment != null) {
+                                        // Show the confirmed insert immediately. The
+                                        // repository flow then reconciles with the server.
+                                        comments = comments.filterNot {
+                                            it.id == addedComment.id
+                                        } + addedComment
+                                        commentText = ""
+                                    } else {
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Comment could not be posted",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                    isPostingComment = false
+                                }
                             }
+                        },
+                        modifier = Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)
+                    ) {
+                        if (isPostingComment) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
+                                color = TextHi
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.Send,
+                                "Send Comment",
+                                Modifier.size(24.dp),
+                                if (commentText.isNotBlank()) TextHi else TextMd
+                            )
                         }
-                    }, Modifier.sizeIn(minWidth = 48.dp, minHeight = 48.dp)) {
-                        Icon(Icons.Default.Send, "Send Comment", Modifier.size(24.dp),
-                            if (commentText.isNotBlank()) TextHi else TextMd)
                     }
                 }
 
@@ -579,7 +633,8 @@ fun DropDetailSheet(
         if (drop.isHitchhiker && !isHoldingPhoto) {
             Spacer(modifier = Modifier.height(16.dp))
             val isCarrying = drop.carriedByUserId == currentUserId
-            androidx.compose.material3.Button(
+            SomewhereButton(
+                text = if (isCarrying) "Pass It On Here" else "Pick Up Hitchhiker",
                 onClick = {
                     if (isCarrying) {
                         // Pass it on (requires location)
@@ -621,19 +676,15 @@ fun DropDetailSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 0.dp),
-                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF6A0DAD)
-                )
-            ) {
-                Icon(
-                    if (isCarrying) Icons.Default.LocationOn
-                    else Icons.Default.Add, 
-                    contentDescription = "Hitchhiker Action", 
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(if (isCarrying) "Pass It On Here" else "Pick Up Hitchhiker", fontWeight = FontWeight.Bold)
-            }
+                minWidth = 0.dp,
+                leadingIcon = {
+                    Icon(
+                        if (isCarrying) Icons.Default.LocationOn else Icons.Default.Add,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            )
         }
     }
 }

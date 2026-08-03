@@ -49,10 +49,7 @@ fun LegalDialog(
                 Column(modifier = Modifier.fillMaxSize()) {
                     Text(
                         text = title,
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 24.sp
-                        ),
+                        style = MaterialTheme.typography.headlineMedium,
                         color = SomewhereColors.TextPrimary,
                         modifier = Modifier.padding(bottom = 16.dp)
                     )
@@ -70,10 +67,7 @@ fun LegalDialog(
                                 block.startsWith("## ") -> {
                                     Text(
                                         text = block.removePrefix("## "),
-                                        style = MaterialTheme.typography.titleLarge.copy(
-                                            fontWeight = FontWeight.SemiBold,
-                                            fontSize = 20.sp
-                                        ),
+                                        style = MaterialTheme.typography.headlineSmall,
                                         color = SomewhereColors.TextPrimary,
                                         modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
                                     )

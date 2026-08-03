@@ -241,11 +241,8 @@ private fun NotificationEmptyState(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = "NO NOTIFICATIONS",
-            style = MaterialTheme.typography.labelLarge.copy(
-                letterSpacing = 2.sp,
-                fontWeight = FontWeight.Bold
-            ),
+            text = "No notifications",
+            style = MaterialTheme.typography.headlineSmall,
             color = SomewhereColors.TextMuted
         )
     }

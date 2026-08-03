@@ -52,8 +52,7 @@ fun AccountSwitcherSheet(
         ) {
             Text(
                 text = "Accounts",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.headlineMedium,
                 color = Color.White,
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)

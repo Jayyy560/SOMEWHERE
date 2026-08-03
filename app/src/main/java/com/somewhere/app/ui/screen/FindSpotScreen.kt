@@ -279,7 +279,7 @@ fun MatchResultCard(score: Int, onRetry: () -> Unit, onDone: () -> Unit) {
                     Spacer(Modifier.height(16.dp))
                     Text(
                         text = "$score% Match",
-                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                        style = MaterialTheme.typography.headlineMedium,
                         color = SomewhereColors.TextPrimary
                     )
                     Spacer(Modifier.height(8.dp))
@@ -291,7 +291,7 @@ fun MatchResultCard(score: Int, onRetry: () -> Unit, onDone: () -> Unit) {
                 } else if (score == -1) {
                     Text(
                         text = "Error",
-                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                        style = MaterialTheme.typography.headlineMedium,
                         color = SomewhereColors.TextPrimary
                     )
                     Spacer(Modifier.height(8.dp))
@@ -303,7 +303,7 @@ fun MatchResultCard(score: Int, onRetry: () -> Unit, onDone: () -> Unit) {
                 } else {
                     Text(
                         text = "$score% Match",
-                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                        style = MaterialTheme.typography.headlineMedium,
                         color = SomewhereColors.TextPrimary
                     )
                     Spacer(Modifier.height(8.dp))

@@ -43,6 +43,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import com.somewhere.app.BuildConfig
 import com.somewhere.app.ui.component.SomewhereButton
+import com.somewhere.app.ui.component.SomewhereButtonHierarchy
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.util.rememberReduceMotionEnabled
 import com.somewhere.app.viewmodel.AuthViewModel
@@ -272,7 +273,8 @@ fun AuthScreen(
             },
             onClick = viewModel::toggleMode,
             enabled = !uiState.isLoading,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            hierarchy = SomewhereButtonHierarchy.Secondary
         )
     }
 }

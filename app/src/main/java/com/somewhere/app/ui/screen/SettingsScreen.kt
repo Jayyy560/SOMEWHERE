@@ -21,6 +21,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.somewhere.app.BuildConfig
 import com.somewhere.app.ui.component.SomewhereButton
+import com.somewhere.app.ui.component.SomewhereButtonHierarchy
 import com.somewhere.app.ui.component.SomewhereTopAppBar
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.util.SettingsUtils
@@ -68,15 +69,44 @@ fun SettingsScreen(
             }
 
             Text("ACCOUNT", style = MaterialTheme.typography.labelMedium, color = SomewhereColors.TextSecondary)
-            SomewhereButton(text = "Manage Permissions", onClick = { SettingsUtils.openAppSettings(context) })
-            SomewhereButton(text = "Blocked Users (${blockedUsers.size})", onClick = { showBlockedUsers = true })
+            SomewhereButton(
+                text = "Manage Permissions",
+                onClick = { SettingsUtils.openAppSettings(context) },
+                modifier = Modifier.fillMaxWidth(),
+                minWidth = 0.dp
+            )
+            SomewhereButton(
+                text = "Blocked Users (${blockedUsers.size})",
+                onClick = { showBlockedUsers = true },
+                modifier = Modifier.fillMaxWidth(),
+                hierarchy = SomewhereButtonHierarchy.Secondary,
+                minWidth = 0.dp
+            )
 
             HorizontalDivider(color = SomewhereColors.Card)
 
             Text("LEGAL", style = MaterialTheme.typography.labelMedium, color = SomewhereColors.TextSecondary)
-            SomewhereButton(text = "Privacy Policy", onClick = { openLegalUrl() })
-            SomewhereButton(text = "Terms of Service", onClick = { openLegalUrl() })
-            SomewhereButton(text = "Community Guidelines", onClick = { openLegalUrl() })
+            SomewhereButton(
+                text = "Privacy Policy",
+                onClick = { openLegalUrl() },
+                modifier = Modifier.fillMaxWidth(),
+                hierarchy = SomewhereButtonHierarchy.Secondary,
+                minWidth = 0.dp
+            )
+            SomewhereButton(
+                text = "Terms of Service",
+                onClick = { openLegalUrl() },
+                modifier = Modifier.fillMaxWidth(),
+                hierarchy = SomewhereButtonHierarchy.Secondary,
+                minWidth = 0.dp
+            )
+            SomewhereButton(
+                text = "Community Guidelines",
+                onClick = { openLegalUrl() },
+                modifier = Modifier.fillMaxWidth(),
+                hierarchy = SomewhereButtonHierarchy.Secondary,
+                minWidth = 0.dp
+            )
 
             HorizontalDivider(color = SomewhereColors.Card)
 
@@ -84,7 +114,10 @@ fun SettingsScreen(
             SomewhereButton(
                 text = if (uiState.isClearing) "Clearing..." else "Delete all drops",
                 enabled = !uiState.isClearing,
-                onClick = { showConfirm = true }
+                onClick = { showConfirm = true },
+                modifier = Modifier.fillMaxWidth(),
+                hierarchy = SomewhereButtonHierarchy.Destructive,
+                minWidth = 0.dp
             )
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -110,13 +143,19 @@ fun SettingsScreen(
                     onClick = {
                         showConfirm = false
                         viewModel.deleteAllDrops()
-                    }
+                    },
+                    hierarchy = SomewhereButtonHierarchy.Destructive,
+                    minWidth = 0.dp,
+                    height = 48.dp
                 )
             },
             dismissButton = {
                 SomewhereButton(
                     text = "Cancel",
-                    onClick = { showConfirm = false }
+                    onClick = { showConfirm = false },
+                    hierarchy = SomewhereButtonHierarchy.Secondary,
+                    minWidth = 0.dp,
+                    height = 48.dp
                 )
             }
         )
@@ -151,7 +190,10 @@ fun SettingsScreen(
             confirmButton = {
                 SomewhereButton(
                     text = "Close",
-                    onClick = { showBlockedUsers = false }
+                    onClick = { showBlockedUsers = false },
+                    hierarchy = SomewhereButtonHierarchy.Secondary,
+                    minWidth = 0.dp,
+                    height = 48.dp
                 )
             }
         )
