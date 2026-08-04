@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.somewhere.app.PrototypeFeatures
 import org.json.JSONArray
 import javax.inject.Inject
 
@@ -164,7 +165,9 @@ class DropViewModel @Inject constructor(
     }
 
     fun setHitchhiker(isHitchhiker: Boolean) {
-        _uiState.update { it.copy(isHitchhiker = isHitchhiker) }
+        _uiState.update {
+            it.copy(isHitchhiker = PrototypeFeatures.SHOW_HITCHHIKER && isHitchhiker)
+        }
     }
 
     fun setCreationStep(step: DropCreationStep) {
@@ -182,7 +185,13 @@ class DropViewModel @Inject constructor(
         }
     }
 
-    fun saveDrop(latitude: Double, longitude: Double) {
+    fun saveDrop(
+        latitude: Double,
+        longitude: Double,
+        placementAccuracyMeters: Float,
+        placementLocationTimestamp: Long,
+        placementLocationProvider: String?
+    ) {
         val state = _uiState.value
         val imageUri = state.capturedImageUri ?: return
         if (state.text.isBlank()) return
@@ -206,7 +215,10 @@ class DropViewModel @Inject constructor(
                     fileType = state.deadDropFileType,
                     fileName = state.deadDropFileName,
                     fileSize = state.deadDropFileSize,
-                    isHitchhiker = state.isHitchhiker
+                    isHitchhiker = PrototypeFeatures.SHOW_HITCHHIKER && state.isHitchhiker,
+                    placementAccuracyMeters = placementAccuracyMeters,
+                    placementLocationTimestamp = placementLocationTimestamp,
+                    placementLocationProvider = placementLocationProvider
                 )
                 _uiState.update { it.copy(isSaving = false, isSaved = true) }
             } catch (e: Exception) {

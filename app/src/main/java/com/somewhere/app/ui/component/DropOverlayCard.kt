@@ -85,11 +85,13 @@ fun DropOverlayCard(
         label = "unlockBounce"
     )
 
+    var wasUnlocked by remember(item.drop.id) { mutableStateOf(item.isUnlocked) }
     LaunchedEffect(item.isUnlocked) {
-        if (item.isUnlocked) {
+        if (item.isUnlocked && !wasUnlocked) {
             view.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
             unlockBounce = true
         }
+        wasUnlocked = item.isUnlocked
     }
 
     // Primary vs secondary sizing
@@ -148,9 +150,6 @@ fun DropOverlayCard(
                     if (item.isUnlocked) {
                         Modifier.clickable(onClick = onTap)
                     } else Modifier
-                )
-                .then(
-                    if (!item.isUnlocked) Modifier.blur(3.dp) else Modifier
                 )
                 .shadow(
                     elevation = if (item.isUnlocked) 16.dp else 4.dp,

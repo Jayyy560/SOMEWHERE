@@ -20,7 +20,6 @@ import com.somewhere.app.ui.component.FloatingBottomNav
 import com.somewhere.app.ui.screen.DropScreen
 import com.somewhere.app.ui.screen.HomeScreen
 import com.somewhere.app.ui.screen.ProfileScreen
-import com.somewhere.app.ui.screen.TripScreen
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.camera.core.ImageCapture
@@ -43,10 +42,23 @@ fun MainPagerScreen(
     onNotifications: () -> Unit,
     onFindSpot: (String) -> Unit
 ) {
-    // Save the current page across process death so the user returns
-    // to the exact tab they were on (e.g., Capture screen).
-    var savedPage by rememberSaveable { mutableIntStateOf(1) }
-    val pagerState = rememberPagerState(initialPage = savedPage) { 4 }
+    val pages = remember {
+        buildList {
+            if (com.somewhere.app.PrototypeFeatures.SHOW_WAYFINDER) add(MainPage.WAYFINDER)
+            add(MainPage.HOME)
+            add(MainPage.CREATE)
+            add(MainPage.PROFILE)
+        }
+    }
+    val homePage = pages.indexOf(MainPage.HOME)
+    val createPage = pages.indexOf(MainPage.CREATE)
+
+    // Versioned input prevents an old four-tab index from restoring into the
+    // prototype's smaller navigation model.
+    var savedPage by rememberSaveable("full_nav_v1") { mutableIntStateOf(homePage) }
+    val pagerState = rememberPagerState(
+        initialPage = savedPage.coerceIn(pages.indices)
+    ) { pages.size }
     val coroutineScope = rememberCoroutineScope()
 
     // Keep savedPage in sync with the pager
@@ -65,7 +77,7 @@ fun MainPagerScreen(
     val focusRequester = remember { FocusRequester() }
     
     LaunchedEffect(pagerState.currentPage) {
-        if (pagerState.currentPage == 2) {
+        if (pagerState.currentPage == createPage) {
             focusRequester.requestFocus()
         }
     }
@@ -82,7 +94,7 @@ fun MainPagerScreen(
             .focusRequester(focusRequester)
             .focusable()
             .onKeyEvent { event ->
-                if (pagerState.currentPage == 2 && event.type == KeyEventType.KeyUp) {
+                if (pagerState.currentPage == createPage && event.type == KeyEventType.KeyUp) {
                     if (event.key == Key.VolumeUp || event.key == Key.VolumeDown) {
                         triggerCapture = true
                         return@onKeyEvent true
@@ -94,7 +106,7 @@ fun MainPagerScreen(
     ) {
         // Z-Index 0: The Camera (only active when on or near the DropScreen to save battery and reduce lag)
         CameraBackground(
-            isActive = pagerState.currentPage == 2 || pagerState.targetPage == 2,
+            isActive = pagerState.currentPage == createPage || pagerState.targetPage == createPage,
             onImageCaptureCreated = { imageCapture = it },
             onCameraControlCreated = { cameraControl = it },
             onCameraError = { cameraError = it },
@@ -104,31 +116,33 @@ fun MainPagerScreen(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
-            userScrollEnabled = pagerState.currentPage != 0
-        ) { page ->
-            when (page) {
-                0 -> Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+            userScrollEnabled = pagerState.currentPage != 0 && !isCreatingDrop
+        ) { pageIndex ->
+            when (pages[pageIndex]) {
+                MainPage.WAYFINDER -> Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
                     TripScreen(
                         onBack = {
                             coroutineScope.launch {
-                                pagerState.animateScrollToPage(1)
+                                pagerState.animateScrollToPage(homePage)
                             }
                         }
                     )
                 }
-                1 -> Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                MainPage.HOME -> Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
                     HomeScreen(
                         onExplore = onExplore,
                         onSettings = onSettings,
                         onNotifications = onNotifications,
                         onTripMode = {
-                            coroutineScope.launch {
-                                pagerState.animateScrollToPage(0)
+                            if (com.somewhere.app.PrototypeFeatures.SHOW_WAYFINDER) {
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(pages.indexOf(MainPage.WAYFINDER))
+                                }
                             }
                         }
                     )
                 }
-                2 -> Box(modifier = Modifier.fillMaxSize().background(Color.Transparent)) {
+                MainPage.CREATE -> Box(modifier = Modifier.fillMaxSize().background(Color.Transparent)) {
                     DropScreen(
                         imageCapture = imageCapture,
                         triggerCapture = triggerCapture,
@@ -142,7 +156,7 @@ fun MainPagerScreen(
                         onComplete = {
                             // Return to Home tab
                             coroutineScope.launch {
-                                pagerState.animateScrollToPage(1)
+                                pagerState.animateScrollToPage(homePage)
                             }
                         },
                         cameraError = cameraError,
@@ -154,11 +168,12 @@ fun MainPagerScreen(
                         onCreationStateChanged = { isCreatingDrop = it }
                     )
                 }
-                3 -> Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                MainPage.PROFILE -> Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
                     ProfileScreen(
+                        onExplore = onExplore,
                         onBack = {
                             coroutineScope.launch {
-                                pagerState.animateScrollToPage(1)
+                                pagerState.animateScrollToPage(homePage)
                             }
                         }
                     )
@@ -197,4 +212,11 @@ fun MainPagerScreen(
             )
         }
     }
+}
+
+private enum class MainPage {
+    WAYFINDER,
+    HOME,
+    CREATE,
+    PROFILE
 }

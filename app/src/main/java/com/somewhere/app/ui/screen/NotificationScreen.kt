@@ -41,7 +41,7 @@ import com.somewhere.app.util.rememberNetworkStatus
 @Composable
 fun NotificationScreen(
     onBack: () -> Unit,
-    onOpenDrop: (String) -> Unit
+    onOpenDrop: (NotificationItem) -> Unit
 ) {
     val activity = LocalContext.current as ComponentActivity
     val userViewModel: UserViewModel = hiltViewModel(activity)
@@ -50,11 +50,6 @@ fun NotificationScreen(
     val loadError by userViewModel.notificationsError.collectAsState()
     val networkStatus = rememberNetworkStatus()
     val haptic = LocalHapticFeedback.current
-
-    LaunchedEffect(Unit) {
-        com.somewhere.app.util.NotificationHelper.checkAndRequestPermission(activity)
-        userViewModel.markNotificationsAsSeen()
-    }
 
     Scaffold(
         topBar = {
@@ -138,7 +133,10 @@ fun NotificationScreen(
                         ) { notif ->
                             NotificationRow(
                                 notification = notif,
-                                onOpen = { notif.dropId?.let(onOpenDrop) },
+                                onOpen = {
+                                    userViewModel.markNotificationRead(notif.id)
+                                    onOpenDrop(notif)
+                                },
                                 onDelete = { userViewModel.removeNotification(notif.id) }
                             )
                         }
@@ -162,13 +160,21 @@ private fun NotificationRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(enabled = notification.dropId != null) {
+                .clickable {
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     onOpen()
                 }
                 .padding(horizontal = 24.dp, vertical = 20.dp),
             verticalAlignment = Alignment.Top
         ) {
+            if (!notification.isRead) {
+                Box(
+                    modifier = Modifier
+                        .padding(top = 8.dp, end = 8.dp)
+                        .size(6.dp)
+                        .background(SomewhereColors.Accent, androidx.compose.foundation.shape.CircleShape)
+                )
+            }
             Icon(
                 imageVector = resolveMinimalIcon(notification),
                 contentDescription = null,

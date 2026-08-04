@@ -28,7 +28,10 @@ data class Drop(
     val fileName: String? = null,
     val fileSize: Long? = null,
     val isHitchhiker: Boolean = false,
-    val carriedByUserId: String? = null
+    val carriedByUserId: String? = null,
+    val placementAccuracyMeters: Float? = null,
+    val placementLocationTimestamp: Long? = null,
+    val placementLocationProvider: String? = null
 ) {
     val imageUrl: String
         get() = if (imagePath.startsWith("/")) {

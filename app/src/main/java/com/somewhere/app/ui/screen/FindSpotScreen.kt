@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -32,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.AsyncImage
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.PermissionStatus
 import com.google.accompanist.permissions.isGranted
@@ -58,6 +60,8 @@ fun FindSpotScreen(
     val matchState by viewModel.matchState.collectAsState()
     val score by viewModel.matchScore.collectAsState()
     val context = LocalContext.current
+    var cameraError by remember { mutableStateOf<String?>(null) }
+    var cameraRetryKey by remember { mutableIntStateOf(0) }
     var hasRequestedCamera by remember {
         mutableStateOf(
             PermissionRequestHistory.wasRequested(
@@ -72,19 +76,9 @@ fun FindSpotScreen(
             (cameraPermissionState.status as? PermissionStatus.Denied)
                 ?.shouldShowRationale == false
 
-    LaunchedEffect(Unit) {
-        if (!cameraPermissionState.status.isGranted) {
-            PermissionRequestHistory.markRequested(
-                context,
-                listOf(android.Manifest.permission.CAMERA)
-            )
-            hasRequestedCamera = true
-            cameraPermissionState.launchPermissionRequest()
-        }
-    }
-
     LaunchedEffect(cameraPermissionState.status.isGranted, originalImageUrl) {
         if (cameraPermissionState.status.isGranted) {
+            cameraError = null
             viewModel.startLiveAnalysis(originalImageUrl)
         }
     }
@@ -108,14 +102,50 @@ fun FindSpotScreen(
                     }
                 }
                 MatchState.ANALYZING -> {
-                    CameraLiveView(
-                        onFrameAnalyzed = { bitmap ->
-                            viewModel.processLiveFrame(bitmap)
+                    if (cameraError == null) {
+                        key(cameraRetryKey) {
+                            CameraLiveView(
+                                onFrameAnalyzed = viewModel::processLiveFrame,
+                                onCameraError = { cameraError = it }
+                            )
                         }
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 32.dp),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                cameraError ?: "Camera is unavailable.",
+                                color = SomewhereColors.TextPrimary,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Spacer(Modifier.height(16.dp))
+                            SomewhereButton(
+                                text = "Retry Camera",
+                                onClick = {
+                                    cameraError = null
+                                    cameraRetryKey++
+                                }
+                            )
+                        }
+                    }
+
+                    AsyncImage(
+                        model = originalImageUrl,
+                        contentDescription = "Original Drop viewpoint",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(top = 104.dp, start = 20.dp)
+                            .size(88.dp)
+                            .clip(RoundedCornerShape(2.dp))
                     )
                     
                     // Live UI Overlay
-                    Box(
+                    if (cameraError == null) Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(bottom = 64.dp),
@@ -161,7 +191,9 @@ fun FindSpotScreen(
             }
         } else {
             Column(
-                modifier = Modifier.align(Alignment.Center),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Text(
@@ -199,7 +231,10 @@ fun FindSpotScreen(
 }
 
 @Composable
-fun CameraLiveView(onFrameAnalyzed: (Bitmap) -> Unit) {
+fun CameraLiveView(
+    onFrameAnalyzed: (Bitmap) -> Unit,
+    onCameraError: (String) -> Unit
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     
@@ -212,7 +247,7 @@ fun CameraLiveView(onFrameAnalyzed: (Bitmap) -> Unit) {
             .build()
     }
     
-    LaunchedEffect(previewView) {
+    DisposableEffect(previewView, lifecycleOwner) {
         imageAnalysis.setAnalyzer(ContextCompat.getMainExecutor(context)) { imageProxy ->
             try {
                 val bitmap = imageProxy.toBitmap()
@@ -227,21 +262,35 @@ fun CameraLiveView(onFrameAnalyzed: (Bitmap) -> Unit) {
             }
         }
 
-        val cameraProvider = context.getCameraProvider()
         val preview = Preview.Builder().build().also {
             it.surfaceProvider = previewView.surfaceProvider
         }
-        
-        try {
-            cameraProvider.unbindAll()
-            cameraProvider.bindToLifecycle(
-                lifecycleOwner,
-                CameraSelector.DEFAULT_BACK_CAMERA,
-                preview,
-                imageAnalysis
-            )
-        } catch (e: Exception) {
-            e.printStackTrace()
+
+        var cameraProvider: ProcessCameraProvider? = null
+        var disposed = false
+        val providerFuture = ProcessCameraProvider.getInstance(context)
+        providerFuture.addListener({
+            if (!disposed) {
+                try {
+                    cameraProvider = providerFuture.get()
+                    cameraProvider?.unbind(preview, imageAnalysis)
+                    cameraProvider?.bindToLifecycle(
+                        lifecycleOwner,
+                        CameraSelector.DEFAULT_BACK_CAMERA,
+                        preview,
+                        imageAnalysis
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.w("FindSpotScreen", "Could not start camera", e)
+                    onCameraError("Camera is unavailable. Close other camera apps and try again.")
+                }
+            }
+        }, ContextCompat.getMainExecutor(context))
+
+        onDispose {
+            disposed = true
+            imageAnalysis.clearAnalyzer()
+            cameraProvider?.unbind(preview, imageAnalysis)
         }
     }
 
@@ -323,11 +372,4 @@ fun MatchResultCard(score: Int, onRetry: () -> Unit, onDone: () -> Unit) {
             }
         }
     }
-}
-
-suspend fun Context.getCameraProvider(): ProcessCameraProvider = suspendCoroutine { continuation ->
-    val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
-    cameraProviderFuture.addListener({
-        continuation.resume(cameraProviderFuture.get())
-    }, ContextCompat.getMainExecutor(this))
 }

@@ -28,7 +28,9 @@ data class NotificationItem(
     val message: String,
     val time: String,
     val type: String = "system",
-    val dropId: String? = null
+    val dropId: String? = null,
+    val actorName: String? = null,
+    val isRead: Boolean = false
 )
 
 private fun getRelativeTime(timestampStr: String): String {
@@ -126,7 +128,9 @@ class UserViewModel @Inject constructor(
                         message = remote.message,
                         time = getRelativeTime(remote.createdAt ?: ""),
                         type = remote.type,
-                        dropId = remote.dropId
+                        dropId = remote.dropId,
+                        actorName = remote.actorName,
+                        isRead = remote.isRead
                     )
                 }
 
@@ -186,6 +190,28 @@ class UserViewModel @Inject constructor(
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+            }
+        }
+    }
+
+    fun markNotificationRead(id: String) {
+        if (id == "1") {
+            _notifications.value = _notifications.value.filterNot { it.id == id }
+            _hasNotifications.value = _notifications.value.any { !it.isRead }
+            prefs.edit().putBoolean("welcome_cleared", true).apply()
+            return
+        }
+        viewModelScope.launch {
+            _notifications.value = _notifications.value.map {
+                if (it.id == id) it.copy(isRead = true) else it
+            }
+            _hasNotifications.value = _notifications.value.any { !it.isRead }
+            runCatching {
+                SupabaseManager.client.postgrest["notifications"].update({
+                    set("is_read", true)
+                }) {
+                    filter { eq("id", id) }
+                }
             }
         }
     }

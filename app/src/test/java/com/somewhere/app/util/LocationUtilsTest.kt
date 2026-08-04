@@ -33,4 +33,21 @@ class LocationUtilsTest {
         )
         assertFalse(LocationUtils.isWithinUnlockRange(60f, 250f))
     }
+
+    @Test
+    fun placementAndViewerAccuracyAreCombined() {
+        val expected = LocationUtils.UNLOCK_RADIUS + kotlin.math.sqrt(16f * 16f + 12f * 12f)
+        assertEquals(expected, LocationUtils.effectiveUnlockRadius(16f, 12f), 0.001f)
+        assertTrue(LocationUtils.isWithinUnlockRange(expected, 16f, 12f))
+        assertFalse(LocationUtils.isWithinUnlockRange(expected + 0.1f, 16f, 12f))
+    }
+
+    @Test
+    fun combinedAccuracyRemainsCapped() {
+        assertEquals(
+            LocationUtils.UNLOCK_RADIUS + LocationUtils.MAX_UNLOCK_ACCURACY_BUFFER,
+            LocationUtils.effectiveUnlockRadius(40f, 40f),
+            0f
+        )
+    }
 }

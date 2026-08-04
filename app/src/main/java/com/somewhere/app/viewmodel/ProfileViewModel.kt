@@ -86,9 +86,9 @@ class ProfileViewModel @Inject constructor(
         }
     }
 
-    fun deleteDrop(drop: Drop) {
+    fun deleteDrop(drop: Drop, onResult: (Boolean) -> Unit = {}) {
         viewModelScope.launch {
-            repository.deleteDrop(drop)
+            onResult(repository.deleteDrop(drop))
         }
     }
 
@@ -104,21 +104,26 @@ class ProfileViewModel @Inject constructor(
         }
     }
 
-    fun deleteAccount(onComplete: () -> Unit) {
+    fun deleteAccount(onComplete: (String?) -> Unit) {
         viewModelScope.launch {
-            repository.deleteAllDrops()
-            val userId = com.somewhere.app.data.remote.SupabaseManager.client.auth.currentUserOrNull()?.id
-            if (userId != null) {
-                com.somewhere.app.data.local.AccountStore.removeAccount(userId)
+            if (!repository.deleteAllDrops()) {
+                onComplete("Could not delete your Drops. Your account was not removed.")
+                return@launch
             }
+            val userId = com.somewhere.app.data.remote.SupabaseManager.client.auth.currentUserOrNull()?.id
             try {
                 // Call Supabase RPC to securely delete the auth.users record
                 com.somewhere.app.data.remote.SupabaseManager.client.postgrest.rpc("delete_user")
             } catch (e: Exception) {
                 android.util.Log.e("ProfileViewModel", "Failed to delete remote account: ${e.message}")
+                onComplete("Could not delete your account. Please try again.")
+                return@launch
+            }
+            if (userId != null) {
+                com.somewhere.app.data.local.AccountStore.removeAccount(userId)
             }
             com.somewhere.app.data.remote.SupabaseManager.client.auth.signOut()
-            onComplete()
+            onComplete(null)
         }
     }
 

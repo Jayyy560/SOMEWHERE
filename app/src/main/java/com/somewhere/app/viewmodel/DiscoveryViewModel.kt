@@ -14,6 +14,7 @@ import com.somewhere.app.data.repository.DropRepository
 import com.somewhere.app.util.LocationUtils
 import com.somewhere.app.util.LocationUtils.HYSTERESIS_MARGIN
 import dagger.hilt.android.lifecycle.HiltViewModel
+import io.github.jan.supabase.gotrue.auth
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -78,6 +79,14 @@ class DiscoveryViewModel @Inject constructor(
     private var realtimeStarted = false
     private var isArCoreTracking = false
     private var lastSensorUpdateNanos = 0L
+    private var nearbyFetchJob: kotlinx.coroutines.Job? = null
+    private var lastFetchLat: Double? = null
+    private var lastFetchLon: Double? = null
+    private var lastFetchAtMillis: Long = 0L
+    private val stickyUnlockedIds = mutableSetOf<String>()
+    private val unlockWritesInFlight = mutableSetOf<String>()
+    private val unlockAttempts = mutableSetOf<String>()
+    private var unlockedIdsLoaded = false
 
     private val sensorListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
@@ -135,12 +144,22 @@ class DiscoveryViewModel @Inject constructor(
                 locationAccuracyMeters = location.accuracy,
                 locationTimedOut = false
             ) }
-            // Fetch nearby drops whenever location updates
+            // Update bearings/distances immediately, but do not refetch the full
+            // backend dataset for every noisy GPS sample.
+            updateOverlayPositions()
             fetchNearbyDrops(location.latitude, location.longitude)
         }
     }
 
     fun startTracking() {
+        if (!unlockedIdsLoaded) {
+            unlockedIdsLoaded = true
+            viewModelScope.launch {
+                stickyUnlockedIds += repository.getUnlockedDropIds()
+                updateOverlayPositions()
+            }
+        }
+
         // Register fused rotation vector sensor for stable AR heading
         sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let {
             sensorManager.registerListener(sensorListener, it, SensorManager.SENSOR_DELAY_UI)
@@ -172,6 +191,7 @@ class DiscoveryViewModel @Inject constructor(
                             locationAccuracyMeters = location.accuracy,
                             locationTimedOut = false
                         ) }
+                        updateOverlayPositions()
                         fetchNearbyDrops(location.latitude, location.longitude)
                     }
                 }
@@ -200,7 +220,7 @@ class DiscoveryViewModel @Inject constructor(
                 repository.dropChanges.collectLatest {
                     val state = _uiState.value
                     if (state.hasLocation) {
-                        fetchNearbyDrops(state.userLat, state.userLon)
+                        fetchNearbyDrops(state.userLat, state.userLon, force = true)
                     }
                 }
             }
@@ -216,6 +236,7 @@ class DiscoveryViewModel @Inject constructor(
         _uiState.update {
             it.copy(locationTimedOut = false, loadError = null)
         }
+        lastFetchAtMillis = 0L
         stopTracking()
         startTracking()
     }
@@ -225,9 +246,7 @@ class DiscoveryViewModel @Inject constructor(
         
         // Record unlock in backend
         if (drop != null && drop.isUnlocked) {
-            viewModelScope.launch {
-                repository.unlockDrop(drop.drop.id)
-            }
+            persistUnlock(drop, allowRetry = true)
         }
     }
 
@@ -235,7 +254,7 @@ class DiscoveryViewModel @Inject constructor(
         _uiState.update { it.copy(selectedCategory = category) }
         val state = _uiState.value
         if (state.hasLocation) {
-            fetchNearbyDrops(state.userLat, state.userLon)
+            fetchNearbyDrops(state.userLat, state.userLon, force = true)
         }
     }
 
@@ -243,14 +262,25 @@ class DiscoveryViewModel @Inject constructor(
         _uiState.update { it.copy(message = null) }
     }
 
-    fun deleteDrop(item: DiscoveredDrop, showMessage: Boolean = false) {
+    fun deleteDrop(
+        item: DiscoveredDrop,
+        showMessage: Boolean = false,
+        onResult: (Boolean) -> Unit = {}
+    ) {
         viewModelScope.launch {
-            repository.deleteDrop(item.drop)
+            val deleted = repository.deleteDrop(item.drop)
             _uiState.update { it.copy(
-                selectedDrop = null,
-                message = if (showMessage) "Drop deleted" else null
+                selectedDrop = if (deleted) null else it.selectedDrop,
+                message = when {
+                    !deleted -> "Could not delete Drop. Try again."
+                    showMessage -> "Drop deleted"
+                    else -> null
+                }
             ) }
-            fetchNearbyDrops(_uiState.value.userLat, _uiState.value.userLon)
+            if (deleted) {
+                fetchNearbyDrops(_uiState.value.userLat, _uiState.value.userLon, force = true)
+            }
+            onResult(deleted)
         }
     }
 
@@ -261,7 +291,7 @@ class DiscoveryViewModel @Inject constructor(
                 selectedDrop = null,
                 message = if (showMessage) "Drop reported. It will no longer be visible to you." else null
             ) }
-            fetchNearbyDrops(_uiState.value.userLat, _uiState.value.userLon)
+            fetchNearbyDrops(_uiState.value.userLat, _uiState.value.userLon, force = true)
         }
     }
 
@@ -272,7 +302,7 @@ class DiscoveryViewModel @Inject constructor(
                 selectedDrop = null,
                 message = if (showMessage) "User blocked. Their drops will be hidden." else null
             ) }
-            fetchNearbyDrops(_uiState.value.userLat, _uiState.value.userLon)
+            fetchNearbyDrops(_uiState.value.userLat, _uiState.value.userLon, force = true)
         }
     }
 
@@ -325,8 +355,20 @@ class DiscoveryViewModel @Inject constructor(
         _uiState.value = _uiState.value.copy(curatedDrop = null, isCurating = false)
     }
 
-    private fun fetchNearbyDrops(lat: Double, lon: Double) {
-        viewModelScope.launch {
+    private fun fetchNearbyDrops(lat: Double, lon: Double, force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        val movedMeters = if (lastFetchLat != null && lastFetchLon != null) {
+            LocationUtils.haversineDistance(lastFetchLat!!, lastFetchLon!!, lat, lon)
+        } else {
+            Float.MAX_VALUE
+        }
+        if (!force && movedMeters < 25f && now - lastFetchAtMillis < 15_000L) return
+
+        lastFetchLat = lat
+        lastFetchLon = lon
+        lastFetchAtMillis = now
+        nearbyFetchJob?.cancel()
+        nearbyFetchJob = viewModelScope.launch {
             _uiState.update { it.copy(isLoadingDrops = true, loadError = null) }
             val nearbyWithDistance = runCatching {
                 repository.getDropsNear(lat, lon)
@@ -360,10 +402,7 @@ class DiscoveryViewModel @Inject constructor(
                 DiscoveredDrop(
                     drop = drop,
                     distanceMeters = distance,
-                    isUnlocked = LocationUtils.isWithinUnlockRange(
-                        distance,
-                        locationAccuracy
-                    ),
+                    isUnlocked = isDropUnlocked(drop, distance, locationAccuracy),
                     angleDegrees = angle,
                     isPrimary = index == 0, // closest is primary
                     isNewlyDiscovered = isNew
@@ -387,6 +426,7 @@ class DiscoveryViewModel @Inject constructor(
                 isLoadingDrops = false,
                 loadError = null
             )
+            merged.forEach(::persistUnlock)
         }
     }
 
@@ -408,10 +448,7 @@ class DiscoveryViewModel @Inject constructor(
 
             item.copy(
                 distanceMeters = dist,
-                isUnlocked = LocationUtils.isWithinUnlockRange(
-                    dist,
-                    state.locationAccuracyMeters
-                ),
+                isUnlocked = isDropUnlocked(item.drop, dist, state.locationAccuracyMeters),
                 angleDegrees = angle,
                 isNewlyDiscovered = false
             )
@@ -423,6 +460,40 @@ class DiscoveryViewModel @Inject constructor(
             nearbyDrops = updated, 
             heading = currentHeading
         )
+        updated.forEach(::persistUnlock)
+    }
+
+    private fun isDropUnlocked(
+        drop: Drop,
+        distanceMeters: Float,
+        currentAccuracyMeters: Float?
+    ): Boolean {
+        val currentUserId = com.somewhere.app.data.remote.SupabaseManager.client.auth
+            .currentUserOrNull()?.id
+        return (currentUserId != null && drop.authorId == currentUserId) ||
+            drop.id in stickyUnlockedIds ||
+            LocationUtils.isWithinUnlockRange(
+                distanceMeters,
+                currentAccuracyMeters,
+                drop.placementAccuracyMeters
+            )
+    }
+
+    private fun persistUnlock(item: DiscoveredDrop, allowRetry: Boolean = false) {
+        val currentUserId = com.somewhere.app.data.remote.SupabaseManager.client.auth
+            .currentUserOrNull()?.id ?: return
+        if (!item.isUnlocked || item.drop.authorId == currentUserId) return
+        if (item.drop.id in stickyUnlockedIds || item.drop.id in unlockWritesInFlight) return
+        if (!allowRetry && item.drop.id in unlockAttempts) return
+
+        unlockAttempts += item.drop.id
+        unlockWritesInFlight += item.drop.id
+        viewModelScope.launch {
+            if (repository.unlockDrop(item.drop.id)) {
+                stickyUnlockedIds += item.drop.id
+            }
+            unlockWritesInFlight -= item.drop.id
+        }
     }
 
     /**
@@ -440,6 +511,7 @@ class DiscoveryViewModel @Inject constructor(
 
     override fun onCleared() {
         super.onCleared()
+        nearbyFetchJob?.cancel()
         stopTracking()
     }
 }

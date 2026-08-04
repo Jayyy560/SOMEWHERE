@@ -25,5 +25,8 @@ data class NearbyDrop(
     @SerialName("file_name") val fileName: String? = null,
     @SerialName("file_size") val fileSize: Long? = null,
     @SerialName("is_hitchhiker") val isHitchhiker: Boolean = false,
-    @SerialName("carried_by_user_id") val carriedByUserId: String? = null
+    @SerialName("carried_by_user_id") val carriedByUserId: String? = null,
+    @SerialName("placement_accuracy_m") val placementAccuracyMeters: Float? = null,
+    @SerialName("placement_location_timestamp") val placementLocationTimestamp: String? = null,
+    @SerialName("placement_location_provider") val placementLocationProvider: String? = null
 )

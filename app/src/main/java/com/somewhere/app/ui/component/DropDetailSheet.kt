@@ -79,6 +79,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.somewhere.app.R
 import com.somewhere.app.util.LocationUtils
+import com.somewhere.app.util.collectStableLocation
 import com.somewhere.app.util.rememberReduceMotionEnabled
 import com.somewhere.app.data.model.Drop
 import java.text.SimpleDateFormat
@@ -105,6 +106,7 @@ private val TextLo = SomewhereColors.TextMuted
 fun DropDetailSheet(
     drop: Drop,
     distanceMeters: Float? = null,
+    focusCommentAuthor: String? = null,
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
     onReport: () -> Unit,
@@ -139,6 +141,7 @@ fun DropDetailSheet(
     var commentText by remember { mutableStateOf("") }
     var isPostingComment by remember { mutableStateOf(false) }
     var isDownloading by remember { mutableStateOf(false) }
+    var isHitchhikerActionRunning by remember { mutableStateOf(false) }
 
     LaunchedEffect(drop.id) {
         isLiked = repository.isDropLikedByMe(drop.id)
@@ -501,7 +504,7 @@ fun DropDetailSheet(
                     Spacer(Modifier.weight(1f))
 
                     // Find Spot — clearly visible
-                    if (drop.imageUrl != null) {
+                    if (drop.imageUrl.isNotBlank()) {
                         Row(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(10.dp))
@@ -548,8 +551,32 @@ fun DropDetailSheet(
                 // Comments
                 if (comments.isNotEmpty()) {
                     Column(Modifier.padding(horizontal = 14.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        comments.takeLast(4).forEach { c ->
-                            Row(Modifier.fillMaxWidth()) {
+                        val focusedComment = focusCommentAuthor?.let { author ->
+                            comments.lastOrNull { it.authorName == author }
+                        }
+                        val visibleComments = if (focusedComment != null) {
+                            comments
+                                .filterNot { it.id == focusedComment.id }
+                                .takeLast(3) + focusedComment
+                        } else {
+                            comments.takeLast(4)
+                        }
+                        visibleComments.forEach { c ->
+                            val isFocused = c.id == focusedComment?.id
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .then(
+                                        if (isFocused) {
+                                            Modifier
+                                                .background(
+                                                    SomewhereColors.AccentSubtle,
+                                                    RoundedCornerShape(8.dp)
+                                                )
+                                                .padding(6.dp)
+                                        } else Modifier
+                                    )
+                            ) {
                                 Text(c.authorName ?: "anon",
                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold), color = TextHi)
                                 Spacer(Modifier.width(6.dp))
@@ -630,39 +657,63 @@ fun DropDetailSheet(
     }
 
     // Hitchhiker Buttons outside the card
-        if (drop.isHitchhiker && !isHoldingPhoto) {
+        if (
+            com.somewhere.app.PrototypeFeatures.SHOW_HITCHHIKER &&
+            drop.isHitchhiker &&
+            !isHoldingPhoto
+        ) {
             Spacer(modifier = Modifier.height(16.dp))
             val isCarrying = drop.carriedByUserId == currentUserId
             SomewhereButton(
-                text = if (isCarrying) "Pass It On Here" else "Pick Up Hitchhiker",
+                text = when {
+                    isHitchhikerActionRunning && isCarrying -> "Finding This Place…"
+                    isHitchhikerActionRunning -> "Picking Up…"
+                    isCarrying -> "Pass It On Here"
+                    else -> "Pick Up Hitchhiker"
+                },
+                enabled = !isHitchhikerActionRunning,
                 onClick = {
                     if (isCarrying) {
-                        // Pass it on (requires location)
-                        try {
-                            val client = com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(context)
-                            val token = com.google.android.gms.tasks.CancellationTokenSource().token
-                            client.getCurrentLocation(com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY, token)
-                                .addOnSuccessListener { loc ->
-                                    if (loc != null) {
-                                        scope.launch {
-                                            val success = repository.passOnHitchhiker(drop.id, loc.latitude, loc.longitude, null, context)
-                                            if (success) {
-                                                android.widget.Toast.makeText(context, "Passed it on!", android.widget.Toast.LENGTH_SHORT).show()
-                                                onDismiss()
-                                            } else {
-                                                android.widget.Toast.makeText(context, "Failed to drop", android.widget.Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
+                        scope.launch {
+                            isHitchhikerActionRunning = true
+                            val fix = collectStableLocation(context)
+                            when {
+                                fix == null -> android.widget.Toast.makeText(
+                                    context,
+                                    "Could not get a fresh location. Check GPS and retry.",
+                                    android.widget.Toast.LENGTH_SHORT
+                                ).show()
+                                fix.accuracyMeters > LocationUtils.ACCURACY_WARNING_METERS ->
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "GPS is only accurate to ±${fix.accuracyMeters.roundToInt()}m. Move outdoors and retry.",
+                                        android.widget.Toast.LENGTH_LONG
+                                    ).show()
+                                else -> {
+                                    val success = repository.passOnHitchhiker(
+                                        dropId = drop.id,
+                                        lat = fix.latitude,
+                                        lon = fix.longitude,
+                                        photoUri = null,
+                                        context = context,
+                                        placementAccuracyMeters = fix.accuracyMeters,
+                                        placementLocationTimestamp = fix.capturedAtMillis,
+                                        placementLocationProvider = fix.provider
+                                    )
+                                    if (success) {
+                                        android.widget.Toast.makeText(context, "Passed it on!", android.widget.Toast.LENGTH_SHORT).show()
+                                        onDismiss()
                                     } else {
-                                        android.widget.Toast.makeText(context, "Waiting for GPS...", android.widget.Toast.LENGTH_SHORT).show()
+                                        android.widget.Toast.makeText(context, "Failed to drop", android.widget.Toast.LENGTH_SHORT).show()
                                     }
                                 }
-                        } catch (e: SecurityException) {
-                            android.widget.Toast.makeText(context, "Location permission needed", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                            isHitchhikerActionRunning = false
                         }
                     } else {
                         // Pick up
                         scope.launch {
+                            isHitchhikerActionRunning = true
                             val success = repository.pickUpHitchhiker(drop.id)
                             if (success) {
                                 android.widget.Toast.makeText(context, "Drop picked up! Check your Profile.", android.widget.Toast.LENGTH_SHORT).show()
@@ -670,6 +721,7 @@ fun DropDetailSheet(
                             } else {
                                 android.widget.Toast.makeText(context, "Failed to pick up", android.widget.Toast.LENGTH_SHORT).show()
                             }
+                            isHitchhikerActionRunning = false
                         }
                     }
                 },

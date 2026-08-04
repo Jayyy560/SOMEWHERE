@@ -14,6 +14,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,6 +25,8 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
 import kotlinx.coroutines.launch
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.graphicsLayer
@@ -38,12 +41,14 @@ fun FloatingBottomNav(
     onProfileLongClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val tabs = listOf(
-        Icons.Default.DirectionsWalk to "Trips",
-        Icons.Default.Home to "Home",
-        Icons.Default.Add to "Create",
-        Icons.Default.Person to "Profile"
-    )
+    val tabs = buildList {
+        if (com.somewhere.app.PrototypeFeatures.SHOW_WAYFINDER) {
+            add(Icons.Default.DirectionsWalk to "Wayfinder")
+        }
+        add(Icons.Default.Home to "Home")
+        add(Icons.Default.Add to "Create")
+        add(Icons.Default.Person to "Profile")
+    }
 
     var isWavy by remember { mutableStateOf(false) }
     LaunchedEffect(pagerState.currentPage) {
@@ -71,7 +76,7 @@ fun FloatingBottomNav(
     Box(
         modifier = modifier
             .padding(bottom = 32.dp)
-            .height(64.dp)
+            .height(72.dp)
             .clip(androidx.compose.foundation.shape.RoundedCornerShape(percent = 50))
             .background(Color.Black.copy(alpha = 0.4f))
             .border(
@@ -94,7 +99,7 @@ fun FloatingBottomNav(
                         ((pagerState.currentPage + pagerState.currentPageOffsetFraction) * 72).dp
                     androidx.compose.ui.unit.IntOffset(x = offsetDp.roundToPx(), y = 0)
                 }
-                .height(56.dp)
+                .height(64.dp)
                 .width(84.dp)
                 .clip(indicatorShape)
                 .background(Color.White.copy(alpha = 0.02f))
@@ -143,7 +148,7 @@ fun FloatingBottomNav(
                     isSelected = pagerState.currentPage == index,
                     onClick = { onTabSelected(index) },
                     onLongClick = {
-                        if (index == 3) {
+                        if (desc == "Profile") {
                             onProfileLongClick()
                         }
                     }
@@ -168,7 +173,8 @@ private fun BottomNavItem(
 
     Box(
         modifier = Modifier
-            .size(56.dp)
+            .width(56.dp)
+            .height(64.dp)
             .clip(androidx.compose.foundation.shape.RoundedCornerShape(percent = 50))
             .semantics {
                 selected = isSelected
@@ -211,14 +217,27 @@ private fun BottomNavItem(
             ),
         contentAlignment = Alignment.Center
     ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = description,
-            tint = if (isSelected) Color.White else Color.White.copy(alpha = 0.5f),
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
             modifier = Modifier.graphicsLayer {
                 scaleX = scale.value
                 scaleY = scale.value
             }
-        )
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = description,
+                tint = if (isSelected) Color.White else Color.White.copy(alpha = 0.5f),
+                modifier = Modifier.size(22.dp)
+            )
+            Text(
+                text = description,
+                color = if (isSelected) Color.White else Color.White.copy(alpha = 0.5f),
+                fontSize = 9.sp,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1
+            )
+        }
     }
 }

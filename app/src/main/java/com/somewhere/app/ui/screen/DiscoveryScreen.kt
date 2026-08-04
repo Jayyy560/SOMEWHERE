@@ -53,8 +53,13 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.runtime.saveable.rememberSaveable
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
 import com.somewhere.app.ui.component.PermissionGate
 import com.somewhere.app.ui.component.DropDetailSheet
+import com.somewhere.app.ui.component.EdgeIndicator
 import com.somewhere.app.ui.component.shimmerEffect
 import com.somewhere.app.ui.component.DropOverlayCard
 import com.somewhere.app.ui.component.PingPulse
@@ -74,6 +79,7 @@ import com.somewhere.app.viewmodel.DiscoveryViewModel
  * Unlocked items are tappable and expand to a detail sheet.
  * Ping pulse fires when a drop is first discovered.
  */
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun DiscoveryScreen(
     onBack: () -> Unit,
@@ -92,6 +98,8 @@ fun DiscoveryScreen(
     val screenWidthPx = with(density) { screenWidthDp.dp.toPx() }
     val ambient = com.somewhere.app.ui.theme.LocalAmbientColors.current
     val networkStatus = rememberNetworkStatus()
+    val cameraPermission = rememberPermissionState(Manifest.permission.CAMERA)
+    var openCameraAfterPermission by remember { mutableStateOf(false) }
 
     val hiddenDropIds = remember { androidx.compose.runtime.mutableStateListOf<String>() }
     val visibleDrops by remember(uiState.nearbyDrops, hiddenDropIds) {
@@ -142,12 +150,9 @@ fun DiscoveryScreen(
     }
 
     PermissionGate(
-        title = "Camera + Location",
-        description = "We use your camera to reveal nearby drops, and location to place them accurately.",
-        permissions = listOf(
-            Manifest.permission.CAMERA,
-            Manifest.permission.ACCESS_FINE_LOCATION
-        )
+        title = "Location",
+        description = "Wayfinder needs your location to calculate which Drops are nearby. The camera view is optional.",
+        permissions = listOf(Manifest.permission.ACCESS_FINE_LOCATION)
     ) {
         // Start/stop tracking with lifecycle
         DisposableEffect(lifecycleOwner) {
@@ -183,7 +188,16 @@ fun DiscoveryScreen(
                     .fillMaxSize()
                     .then(if (blurRadius > 0.dp) Modifier.blur(blurRadius) else Modifier)
             ) {
-                var showListView by remember { mutableStateOf(false) }
+                var showListView by rememberSaveable {
+                    mutableStateOf(!cameraPermission.status.isGranted)
+                }
+
+                LaunchedEffect(cameraPermission.status.isGranted) {
+                    if (cameraPermission.status.isGranted && openCameraAfterPermission) {
+                        showListView = false
+                        openCameraAfterPermission = false
+                    }
+                }
 
             // Fullscreen camera preview
             var arCoreSupported by remember { mutableStateOf<Boolean?>(null) }
@@ -203,7 +217,11 @@ fun DiscoveryScreen(
                 }
             }
 
-            LaunchedEffect(arAvailabilityCheck) {
+            LaunchedEffect(arAvailabilityCheck, cameraPermission.status.isGranted) {
+                if (!cameraPermission.status.isGranted) {
+                    arCoreSupported = false
+                    return@LaunchedEffect
+                }
                 try {
                     val apk = com.google.ar.core.ArCoreApk.getInstance()
                     // Poll until the availability result is no longer transient (cold start can take >1s).
@@ -539,35 +557,27 @@ fun DiscoveryScreen(
                     }
                     
                     // Compass fallback overlay
-                    val drops = visibleDrops
-                    val zoneIndex = mutableMapOf<String, Int>()
+                    val dropsInView = visibleDrops
+                        .filter { kotlin.math.abs(it.angleDegrees) <= 32f }
+                        .sortedWith(
+                            compareByDescending<com.somewhere.app.viewmodel.DiscoveredDrop> {
+                                it.isPrimary
+                            }.thenBy { it.distanceMeters }
+                        )
+                        .take(6)
 
-                    drops.forEachIndexed { index, item ->
+                    dropsInView.forEachIndexed { index, item ->
                         val pixelsPerDegree = screenWidthPx / 60f
-                        val horizontalOffsetPx = item.angleDegrees * pixelsPerDegree
-
-                        val zone = when {
-                            item.isPrimary -> "primary"
-                            item.angleDegrees < -5f -> "left"
-                            item.angleDegrees > 5f -> "right"
-                            else -> "center"
-                        }
-                        val slot = zoneIndex[zone] ?: 0
-                        zoneIndex[zone] = slot + 1
+                        val horizontalOffsetPx = (item.angleDegrees * pixelsPerDegree)
+                            .coerceIn(-screenWidthPx * 0.38f, screenWidthPx * 0.38f)
 
                         val verticalOffsetDp = when (index) {
                             0 -> 0.dp
-                            1 -> (-90).dp
-                            2 -> 90.dp
-                            3 -> (-180).dp
-                            4 -> 180.dp
-                            5 -> (-260).dp
-                            6 -> 260.dp
-                            else -> {
-                                val sign = if (index % 2 == 0) -1 else 1
-                                val magnitude = 100 + index * 30
-                                (sign * magnitude).dp
-                            }
+                            1 -> (-88).dp
+                            2 -> 88.dp
+                            3 -> (-176).dp
+                            4 -> 176.dp
+                            else -> 250.dp
                         }
                         val verticalOffsetPx = with(density) { verticalOffsetDp.toPx() }
 
@@ -609,6 +619,23 @@ fun DiscoveryScreen(
                         }
                     }
 
+                    if (visibleDrops.any { it.angleDegrees < -32f }) {
+                        EdgeIndicator(
+                            isLeft = true,
+                            modifier = Modifier
+                                .align(Alignment.CenterStart)
+                                .padding(bottom = 240.dp)
+                        )
+                    }
+                    if (visibleDrops.any { it.angleDegrees > 32f }) {
+                        EdgeIndicator(
+                            isLeft = false,
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(bottom = 240.dp)
+                        )
+                    }
+
                 }
             } else {
                 // List View Fallback
@@ -618,6 +645,42 @@ fun DiscoveryScreen(
                         contentPadding = PaddingValues(top = 100.dp, bottom = 120.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                        if (!cameraPermission.status.isGranted) {
+                            item {
+                                Surface(
+                                    color = SomewhereColors.Card,
+                                    shape = RoundedCornerShape(2.dp),
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        0.5.dp,
+                                        SomewhereColors.CardBorder
+                                    )
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Text(
+                                            "Camera view is optional",
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = SomewhereColors.TextPrimary
+                                        )
+                                        Text(
+                                            "The list still shows nearby Drops. Enable the camera only when you want the spatial view.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = SomewhereColors.TextSecondary
+                                        )
+                                        TextButton(
+                                            onClick = {
+                                                openCameraAfterPermission = true
+                                                cameraPermission.launchPermissionRequest()
+                                            }
+                                        ) {
+                                            Text("Enable Camera")
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         items(visibleDrops) { item ->
                             DropOverlayCard(
                                 item = item,
@@ -632,7 +695,6 @@ fun DiscoveryScreen(
             if (
                 uiState.hasLocation &&
                 visibleDrops.isEmpty() &&
-                !showListView &&
                 !uiState.isLoadingDrops &&
                 uiState.loadError == null
             ) {
@@ -668,7 +730,14 @@ fun DiscoveryScreen(
                 Spacer(Modifier.weight(1f))
                 
                 IconButton(
-                    onClick = { showListView = !showListView },
+                    onClick = {
+                        if (showListView && !cameraPermission.status.isGranted) {
+                            openCameraAfterPermission = true
+                            cameraPermission.launchPermissionRequest()
+                        } else {
+                            showListView = !showListView
+                        }
+                    },
                     modifier = Modifier
                         .size(48.dp)
                         .clip(RoundedCornerShape(2.dp))
@@ -677,7 +746,7 @@ fun DiscoveryScreen(
                 ) {
                     Icon(
                         imageVector = if (showListView) Icons.Default.Map else Icons.Default.List,
-                        contentDescription = "Toggle View",
+                        contentDescription = if (showListView) "Open camera view" else "Open list view",
                         tint = ambient.pulseColor
                     )
                 }

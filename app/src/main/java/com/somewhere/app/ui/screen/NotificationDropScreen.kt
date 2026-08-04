@@ -27,6 +27,7 @@ import com.somewhere.app.viewmodel.NotificationDropViewModel
 @Composable
 fun NotificationDropScreen(
     dropId: String,
+    focusCommentAuthor: String? = null,
     onBack: () -> Unit,
     onFindSpot: (String) -> Unit,
     viewModel: NotificationDropViewModel = hiltViewModel()
@@ -64,10 +65,12 @@ fun NotificationDropScreen(
                 val drop = uiState.drop ?: return@Box
                 DropDetailSheet(
                     drop = drop,
+                    focusCommentAuthor = focusCommentAuthor,
                     onDismiss = onBack,
                     onDelete = {
-                        viewModel.delete(drop)
-                        onBack()
+                        viewModel.delete(drop) { deleted ->
+                            if (deleted) onBack()
+                        }
                     },
                     onReport = {
                         viewModel.report(drop.id)

@@ -21,16 +21,30 @@ object LocationUtils {
      * unlock radius so two noisy readings from the same place do not lock each
      * other out. The cap prevents very poor fixes from creating a huge radius.
      */
-    fun effectiveUnlockRadius(accuracyMeters: Float?): Float {
-        val accuracyBuffer = accuracyMeters
+    fun effectiveUnlockRadius(
+        currentAccuracyMeters: Float?,
+        placementAccuracyMeters: Float? = null
+    ): Float {
+        val current = currentAccuracyMeters
             ?.takeIf { it.isFinite() && it > 0f }
-            ?.coerceAtMost(MAX_UNLOCK_ACCURACY_BUFFER)
             ?: 0f
+        val placement = placementAccuracyMeters
+            ?.takeIf { it.isFinite() && it > 0f }
+            ?: 0f
+        val combinedUncertainty = sqrt(current * current + placement * placement)
+        val accuracyBuffer = combinedUncertainty.coerceAtMost(MAX_UNLOCK_ACCURACY_BUFFER)
         return UNLOCK_RADIUS + accuracyBuffer
     }
 
-    fun isWithinUnlockRange(distanceMeters: Float, accuracyMeters: Float?): Boolean {
-        return distanceMeters <= effectiveUnlockRadius(accuracyMeters)
+    fun isWithinUnlockRange(
+        distanceMeters: Float,
+        currentAccuracyMeters: Float?,
+        placementAccuracyMeters: Float? = null
+    ): Boolean {
+        return distanceMeters <= effectiveUnlockRadius(
+            currentAccuracyMeters,
+            placementAccuracyMeters
+        )
     }
 
     /**

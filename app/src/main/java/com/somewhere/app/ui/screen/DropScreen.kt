@@ -17,7 +17,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -55,13 +57,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
-import com.google.android.gms.tasks.CancellationTokenSource
 import com.somewhere.app.ui.component.PermissionGate
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.somewhere.app.ui.component.SomewhereButton
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.util.LocationUtils
+import com.somewhere.app.util.StableLocationFix
+import com.somewhere.app.util.collectStableLocation
 import com.somewhere.app.util.rememberReduceMotionEnabled
 import com.somewhere.app.viewmodel.DropViewModel
 import com.somewhere.app.viewmodel.DropCreationStep
@@ -71,8 +75,8 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
-import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -88,6 +92,7 @@ private const val MIN_AUDIO_RECORDING_MS = 600L
  * 3. Text input appears
  * 4. "Mark this place" → saves drop with current GPS
  */
+@OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun DropScreen(
     imageCapture: ImageCapture?,
@@ -114,10 +119,26 @@ fun DropScreen(
     var waveformSamples by remember { mutableStateOf(List(16) { 0.12f }) }
     var previewPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var showDiscardDialog by remember { mutableStateOf(false) }
-    var locationFix by remember { mutableStateOf<LocationResult?>(null) }
+    var locationFix by remember { mutableStateOf<StableLocationFix?>(null) }
     var isLocating by remember { mutableStateOf(false) }
     var locationTimedOut by remember { mutableStateOf(false) }
+    var acceptLowAccuracy by remember { mutableStateOf(false) }
+    val locationPermission = rememberPermissionState(android.Manifest.permission.ACCESS_FINE_LOCATION)
+    val microphonePermission = rememberPermissionState(android.Manifest.permission.RECORD_AUDIO)
     val networkStatus = rememberNetworkStatus()
+
+    suspend fun acquirePlacementLocation() {
+        isLocating = true
+        locationTimedOut = false
+        locationFix = null
+        acceptLowAccuracy = false
+        val result = collectStableLocation(context) { currentBest ->
+            locationFix = currentBest
+        }
+        locationFix = result
+        isLocating = false
+        locationTimedOut = result == null
+    }
     
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -154,8 +175,11 @@ fun DropScreen(
         }
     }
     
-    LaunchedEffect(uiState.isSaving) {
-        onCreationStateChanged(uiState.isSaving)
+    LaunchedEffect(uiState.capturedImageUri) {
+        onCreationStateChanged(uiState.capturedImageUri != null)
+    }
+    androidx.activity.compose.BackHandler(enabled = uiState.capturedImageUri != null) {
+        showDiscardDialog = true
     }
     var isPreviewPlaying by remember { mutableStateOf(false) }
 
@@ -192,7 +216,7 @@ fun DropScreen(
     // Navigate back after successful save
     LaunchedEffect(uiState.isSaved) {
         if (uiState.isSaved) {
-            if (!uiState.isHitchhiker) {
+            if (!com.somewhere.app.PrototypeFeatures.SHOW_HITCHHIKER || !uiState.isHitchhiker) {
                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 Toast.makeText(context, "Saved", Toast.LENGTH_SHORT).show()
                 viewModel.reset()
@@ -255,26 +279,17 @@ fun DropScreen(
         }
     }
 
-    LaunchedEffect(uiState.creationStep, uiState.capturedImageUri) {
+    LaunchedEffect(
+        uiState.creationStep,
+        uiState.capturedImageUri,
+        locationPermission.status.isGranted
+    ) {
         if (
             uiState.capturedImageUri != null &&
-            uiState.creationStep == DropCreationStep.LOCATION
+            uiState.creationStep == DropCreationStep.LOCATION &&
+            locationPermission.status.isGranted
         ) {
-            isLocating = true
-            locationTimedOut = false
-            locationFix = null
-            getCurrentLocation(context) { result ->
-                if (!result.isFallback) {
-                    locationFix = result
-                }
-                isLocating = false
-                locationTimedOut = result.isFallback
-            }
-            delay(10_000)
-            if (locationFix == null) {
-                isLocating = false
-                locationTimedOut = true
-            }
+            acquirePlacementLocation()
         }
     }
 
@@ -321,12 +336,10 @@ fun DropScreen(
     }
 
     PermissionGate(
-        title = "Camera + Location + Mic",
-        description = "Capture a photo, voice note, and attach them to this exact place.",
+        title = "Camera Access",
+        description = "Use the camera to capture the place where you want to leave a Drop.",
         permissions = listOf(
-            android.Manifest.permission.CAMERA,
-            android.Manifest.permission.ACCESS_FINE_LOCATION,
-            android.Manifest.permission.RECORD_AUDIO
+            android.Manifest.permission.CAMERA
         )
     ) {
         Box(
@@ -335,25 +348,6 @@ fun DropScreen(
                 .imePadding()
                 // Do not apply background color so the camera shines through
                 .alpha(contentAlpha)
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onPress = { offset ->
-                            isUIHidden = true
-                            try {
-                                tryAwaitRelease()
-                            } finally {
-                                isUIHidden = false
-                            }
-                        },
-                        onTap = { offset ->
-                            focusPoint = offset
-                            focusTrigger++
-                            val width = size.width.toFloat()
-                            val height = size.height.toFloat()
-                            onFocusTap(offset.x / width, offset.y / height)
-                        }
-                    )
-                }
         ) {
             // Visual Focus Indicator
             focusPoint?.let { point ->
@@ -412,6 +406,39 @@ fun DropScreen(
                     modifier = Modifier.fillMaxSize()
                 )
             }
+
+            // This layer sits above the photo/camera but below the creation panel.
+            // A short tap focuses the live camera. Only a deliberate hold hides
+            // the UI over a captured photo, and panel interactions never trigger it.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(uiState.capturedImageUri) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val releasedBeforeLongPress = withTimeoutOrNull(
+                                viewConfiguration.longPressTimeoutMillis
+                            ) {
+                                waitForUpOrCancellation()
+                            }
+                            if (releasedBeforeLongPress == null) {
+                                isUIHidden = true
+                                try {
+                                    waitForUpOrCancellation()
+                                } finally {
+                                    isUIHidden = false
+                                }
+                            } else if (uiState.capturedImageUri == null) {
+                                focusPoint = down.position
+                                focusTrigger++
+                                onFocusTap(
+                                    down.position.x / size.width.toFloat(),
+                                    down.position.y / size.height.toFloat()
+                                )
+                            }
+                        }
+                    }
+            )
 
             // Bottom panel
             androidx.compose.animation.AnimatedVisibility(
@@ -516,6 +543,15 @@ fun DropScreen(
                         HoldToRecordButton(
                             isRecording = isRecording,
                             onPressStart = {
+                                if (!microphonePermission.status.isGranted) {
+                                    microphonePermission.launchPermissionRequest()
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar(
+                                            "Allow microphone access, then hold again to record"
+                                        )
+                                    }
+                                    return@HoldToRecordButton false
+                                }
                                 val result = startAudioRecording(context)
                                 if (result != null) {
                                     recorder = result.first
@@ -907,43 +943,45 @@ fun DropScreen(
                         )
                     }
 
-                    HitchhikerToggleBox(
-                        isHitchhiker = uiState.isHitchhiker,
-                        onToggle = { viewModel.setHitchhiker(it) }
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                    if (com.somewhere.app.PrototypeFeatures.SHOW_HITCHHIKER) {
+                        HitchhikerToggleBox(
+                            isHitchhiker = uiState.isHitchhiker,
+                            onToggle = { viewModel.setHitchhiker(it) }
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Release as a Hitchhiker",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = SomewhereColors.TextPrimary
-                                )
-                                Text(
-                                    text = "Anyone can carry this Drop to new locations. Its journey will be recorded forever.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = SomewhereColors.TextSecondary
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "This Drop could travel for years and be carried by hundreds of people.",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
-                                    ),
-                                    color = SomewhereColors.TextSecondary
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Release as a Hitchhiker",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = SomewhereColors.TextPrimary
+                                    )
+                                    Text(
+                                        text = "Anyone can carry this Drop to new locations. Its journey will be recorded forever.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = SomewhereColors.TextSecondary
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "This Drop could travel for years and be carried by hundreds of people.",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                                        ),
+                                        color = SomewhereColors.TextSecondary
+                                    )
+                                }
+                                androidx.compose.material3.Switch(
+                                    checked = uiState.isHitchhiker,
+                                    onCheckedChange = { viewModel.setHitchhiker(it) },
+                                    modifier = Modifier.scale(0.7f),
+                                    colors = androidx.compose.material3.SwitchDefaults.colors(
+                                        checkedThumbColor = Color.White,
+                                        checkedTrackColor = SomewhereColors.TextPrimary
+                                    )
                                 )
                             }
-                            androidx.compose.material3.Switch(
-                                checked = uiState.isHitchhiker,
-                                onCheckedChange = { viewModel.setHitchhiker(it) },
-                                modifier = Modifier.scale(0.7f),
-                                colors = androidx.compose.material3.SwitchDefaults.colors(
-                                    checkedThumbColor = Color.White,
-                                    checkedTrackColor = SomewhereColors.TextPrimary
-                                )
-                            )
                         }
                     }
                     }
@@ -954,14 +992,12 @@ fun DropScreen(
                             isLocating = isLocating,
                             timedOut = locationTimedOut,
                             isOffline = networkStatus == NetworkStatus.UNAVAILABLE,
+                            hasLocationPermission = locationPermission.status.isGranted,
+                            lowAccuracyAccepted = acceptLowAccuracy,
+                            onRequestPermission = locationPermission::launchPermissionRequest,
+                            onAcceptLowAccuracy = { acceptLowAccuracy = true },
                             onRetry = {
-                                isLocating = true
-                                locationTimedOut = false
-                                getCurrentLocation(context) { result ->
-                                    locationFix = result.takeUnless { it.isFallback }
-                                    isLocating = false
-                                    locationTimedOut = result.isFallback
-                                }
+                                scope.launch { acquirePlacementLocation() }
                             }
                         )
                     }
@@ -973,8 +1009,11 @@ fun DropScreen(
                             hasMessage = uiState.text.isNotBlank(),
                             isSaving = uiState.isSaving,
                             isOffline = networkStatus == NetworkStatus.UNAVAILABLE,
-                            hasLocation = locationFix != null,
-                            isHitchhiker = uiState.isHitchhiker,
+                            hasLocation = !isLocating && locationFix != null && (
+                                locationFix!!.accuracyMeters <= LocationUtils.ACCURACY_WARNING_METERS ||
+                                    acceptLowAccuracy
+                                ),
+                            isHitchhiker = com.somewhere.app.PrototypeFeatures.SHOW_HITCHHIKER && uiState.isHitchhiker,
                             onBack = {
                                 viewModel.setCreationStep(
                                     when (uiState.creationStep) {
@@ -995,7 +1034,13 @@ fun DropScreen(
                             },
                             onSubmit = {
                                 locationFix?.let {
-                                    viewModel.saveDrop(it.latitude, it.longitude)
+                                    viewModel.saveDrop(
+                                        latitude = it.latitude,
+                                        longitude = it.longitude,
+                                        placementAccuracyMeters = it.accuracyMeters,
+                                        placementLocationTimestamp = it.capturedAtMillis,
+                                        placementLocationProvider = it.provider
+                                    )
                                 }
                             },
                             modifier = Modifier
@@ -1009,7 +1054,11 @@ fun DropScreen(
 
             }
             
-            if (uiState.isSaved && uiState.isHitchhiker) {
+            if (
+                com.somewhere.app.PrototypeFeatures.SHOW_HITCHHIKER &&
+                uiState.isSaved &&
+                uiState.isHitchhiker
+            ) {
                 ReleaseAnimationOverlay(
                     onComplete = {
                         viewModel.reset()
@@ -1123,10 +1172,14 @@ private fun DropProgressHeader(step: DropCreationStep) {
 
 @Composable
 private fun LocationConfirmationContent(
-    locationFix: LocationResult?,
+    locationFix: StableLocationFix?,
     isLocating: Boolean,
     timedOut: Boolean,
     isOffline: Boolean,
+    hasLocationPermission: Boolean,
+    lowAccuracyAccepted: Boolean,
+    onRequestPermission: () -> Unit,
+    onAcceptLowAccuracy: () -> Unit,
     onRetry: () -> Unit
 ) {
     val accuracy = locationFix?.accuracyMeters
@@ -1158,6 +1211,13 @@ private fun LocationConfirmationContent(
                         color = SomewhereColors.TextSecondary
                     )
                 }
+                !hasLocationPermission -> {
+                    Text(
+                        "Location access is needed now to attach this Drop to the place where you are standing.",
+                        color = SomewhereColors.TextSecondary
+                    )
+                    SomewhereButton(text = "Allow Location", onClick = onRequestPermission)
+                }
                 isLocating -> Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -1167,7 +1227,16 @@ private fun LocationConfirmationContent(
                         strokeWidth = 2.dp,
                         color = SomewhereColors.Accent
                     )
-                    Text("Getting a precise GPS fix…", color = SomewhereColors.TextSecondary)
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Stabilizing this place…", color = SomewhereColors.TextSecondary)
+                        locationFix?.let { fix ->
+                            Text(
+                                "Best fix so far: ±${fix.accuracyMeters.toInt()} m",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = accuracyColor
+                            )
+                        }
+                    }
                 }
                 locationFix != null -> {
                     Row(
@@ -1188,12 +1257,30 @@ private fun LocationConfirmationContent(
                     Text(
                         text = if (locationFix.accuracyMeters <= LocationUtils.ACCURACY_WARNING_METERS) {
                             "This location is ready to publish."
+                        } else if (lowAccuracyAccepted) {
+                            "You chose to publish with this approximate location."
                         } else {
-                            "Accuracy is low. Move into an open area or retry before publishing."
+                            "Accuracy is low. Retry in an open area, or explicitly use this approximate location."
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = SomewhereColors.TextSecondary
                     )
+                    if (locationFix.accuracyMeters > LocationUtils.ACCURACY_WARNING_METERS) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            SomewhereButton(
+                                text = "Retry",
+                                onClick = onRetry,
+                                minWidth = 0.dp
+                            )
+                            if (!lowAccuracyAccepted) {
+                                SomewhereButton(
+                                    text = "Use Anyway",
+                                    onClick = onAcceptLowAccuracy,
+                                    minWidth = 0.dp
+                                )
+                            }
+                        }
+                    }
                 }
                 timedOut -> {
                     Text(
@@ -1480,51 +1567,6 @@ private fun playAudio(
             }
         }
     }.getOrNull()
-}
-
-/**
- * Gets the last known location. Falls back to 0,0 if unavailable.
- */
-private data class LocationResult(
-    val latitude: Double,
-    val longitude: Double,
-    val accuracyMeters: Float,
-    val isFallback: Boolean
-)
-
-private fun getCurrentLocation(
-    context: Context,
-    onLocation: (LocationResult) -> Unit
-) {
-    try {
-        val client = LocationServices.getFusedLocationProviderClient(context)
-        val cancellationTokenSource = CancellationTokenSource()
-        val request = com.google.android.gms.location.CurrentLocationRequest.Builder()
-            .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
-            .setMaxUpdateAgeMillis(0)
-            .setDurationMillis(10_000)
-            .build()
-        client.getCurrentLocation(request, cancellationTokenSource.token)
-            .addOnSuccessListener { location ->
-                if (location != null) {
-                    onLocation(
-                        LocationResult(
-                            latitude = location.latitude,
-                            longitude = location.longitude,
-                            accuracyMeters = location.accuracy,
-                            isFallback = false
-                        )
-                    )
-                } else {
-                    onLocation(LocationResult(0.0, 0.0, Float.MAX_VALUE, true))
-                }
-            }
-            .addOnFailureListener {
-                onLocation(LocationResult(0.0, 0.0, Float.MAX_VALUE, true))
-            }
-} catch (_: SecurityException) {
-        onLocation(LocationResult(0.0, 0.0, Float.MAX_VALUE, true))
-    }
 }
 
 @Composable

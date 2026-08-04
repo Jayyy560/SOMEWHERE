@@ -40,9 +40,7 @@ fun CameraBackground(
         title = "Camera Access",
         description = "We need camera access to capture drops.",
         permissions = listOf(
-            android.Manifest.permission.CAMERA,
-            android.Manifest.permission.ACCESS_FINE_LOCATION,
-            android.Manifest.permission.RECORD_AUDIO
+            android.Manifest.permission.CAMERA
         )
     ) {
         Box(

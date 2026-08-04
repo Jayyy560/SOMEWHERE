@@ -80,7 +80,10 @@ class DropRepository(
         fileType: String? = null,
         fileName: String? = null,
         fileSize: Long? = null,
-        isHitchhiker: Boolean = false
+        isHitchhiker: Boolean = false,
+        placementAccuracyMeters: Float? = null,
+        placementLocationTimestamp: Long? = null,
+        placementLocationProvider: String? = null
     ): Drop {
         require(text.isNotBlank()) { "Drop text must not be blank" }
 
@@ -117,7 +120,11 @@ class DropRepository(
                 fileType = fileType,
                 fileName = fileName,
                 fileSize = fileSize,
-                isHitchhiker = isHitchhiker
+                isHitchhiker = isHitchhiker,
+                placementAccuracyMeters = placementAccuracyMeters,
+                placementLocationTimestamp = placementLocationTimestamp
+                    ?.let { Instant.ofEpochMilli(it).toString() },
+                placementLocationProvider = placementLocationProvider
             )
         )
 
@@ -140,23 +147,25 @@ class DropRepository(
             fileType = fileType,
             fileName = fileName,
             fileSize = fileSize,
-            isHitchhiker = isHitchhiker
+            isHitchhiker = isHitchhiker,
+            placementAccuracyMeters = placementAccuracyMeters,
+            placementLocationTimestamp = placementLocationTimestamp,
+            placementLocationProvider = placementLocationProvider
         )
         dao.insert(drop)
         return drop
     }
 
     suspend fun deleteDrop(drop: Drop): Boolean {
-        // Delete locally
-        dao.deleteById(drop.id)
-        deleteLocalFileIfPresent(drop.imagePath)
-        drop.audioPath?.let { deleteLocalFileIfPresent(it) }
-        
-        // Delete remotely
+        // Delete remotely first. If this fails, keep the local copy so the UI
+        // cannot claim success only for the Drop to reappear after the next sync.
         return try {
             SupabaseManager.client.from("drops").delete {
                 filter { eq("id", drop.id) }
             }
+            dao.deleteById(drop.id)
+            deleteLocalFileIfPresent(drop.imagePath)
+            drop.audioPath?.let { deleteLocalFileIfPresent(it) }
             true
         } catch (e: Exception) {
             android.util.Log.e("DropRepository", "Failed to delete drop", e)
@@ -196,12 +205,16 @@ class DropRepository(
                     fileName = remote.fileName,
                     fileSize = remote.fileSize,
                     isHitchhiker = remote.isHitchhiker,
-                    carriedByUserId = remote.carriedByUserId
+                    carriedByUserId = remote.carriedByUserId,
+                    placementAccuracyMeters = remote.placementAccuracyMeters,
+                    placementLocationTimestamp = remote.placementLocationTimestamp
+                        ?.let(::parseTimestamp),
+                    placementLocationProvider = remote.placementLocationProvider
                 )
             }
 
-            // Wipe old local cache to prevent leaking drops from other accounts
-            dao.deleteAll()
+            // Refresh only this account's cached Drops; preserve other signed-in accounts.
+            dao.deleteAllByAuthor(currentUser.id)
 
             // Upsert into local database
             drops.forEach { drop ->
@@ -212,30 +225,25 @@ class DropRepository(
         }
     }
 
-    suspend fun deleteAllDrops() {
-        val currentUser = SupabaseManager.client.auth.currentUserOrNull()
-        val existing = if (currentUser != null) dao.getAllOnce(currentUser.id) else emptyList()
-        
-        // Delete locally
-        dao.deleteAll()
-        existing.forEach {
-            deleteLocalFileIfPresent(it.imagePath)
-            it.audioPath?.let { path -> deleteLocalFileIfPresent(path) }
-        }
-        
-        // Delete remotely for current user
-        if (currentUser != null) {
-            try {
-                SupabaseManager.client.from("drops").delete {
-                    filter { eq("user_id", currentUser.id) }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("DropRepository", "Failed to delete all drops", e)
+    suspend fun deleteAllDrops(): Boolean {
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return false
+        val existing = dao.getAllOnce(currentUser.id)
+
+        return try {
+            SupabaseManager.client.from("drops").delete {
+                filter { eq("user_id", currentUser.id) }
             }
+            dao.deleteAllByAuthor(currentUser.id)
+            existing.forEach {
+                deleteLocalFileIfPresent(it.imagePath)
+                it.audioPath?.let { path -> deleteLocalFileIfPresent(path) }
+            }
+            sharedPrefs.edit().putLong(WIPE_TIMESTAMP_KEY, System.currentTimeMillis()).apply()
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("DropRepository", "Failed to delete all drops", e)
+            false
         }
-        
-        // Save wipe timestamp to hide ghost remote drops that RLS prevented us from deleting
-        sharedPrefs.edit().putLong(WIPE_TIMESTAMP_KEY, System.currentTimeMillis()).apply()
     }
 
     fun deleteLocalImage(path: String) {
@@ -488,10 +496,32 @@ class DropRepository(
             put("p_limit", maxItems)
         }
 
-        val remoteDrops = SupabaseManager.client
+        val nearbyRows = SupabaseManager.client
             .postgrest
             .rpc("nearby_drops", params)
             .decodeList<NearbyDrop>()
+
+        // Keep the spatial RPC backward-compatible: older versions may not yet
+        // project the placement metadata even after the columns are added.
+        val placementMetadata = if (nearbyRows.isEmpty()) {
+            emptyMap()
+        } else {
+            runCatching {
+                SupabaseManager.client.postgrest["drops"]
+                    .select { filter { isIn("id", nearbyRows.map { it.id }) } }
+                    .decodeList<NearbyDrop>()
+                    .associateBy { it.id }
+            }.getOrDefault(emptyMap())
+        }
+
+        val remoteDrops = nearbyRows.map { nearby ->
+            val metadata = placementMetadata[nearby.id]
+            if (metadata == null) nearby else nearby.copy(
+                placementAccuracyMeters = metadata.placementAccuracyMeters,
+                placementLocationTimestamp = metadata.placementLocationTimestamp,
+                placementLocationProvider = metadata.placementLocationProvider
+            )
+        }
 
         return remoteDrops
             .filter { it.text.isNotBlank() }
@@ -516,7 +546,11 @@ class DropRepository(
                     fileName = remote.fileName,
                     fileSize = remote.fileSize,
                     isHitchhiker = remote.isHitchhiker,
-                    carriedByUserId = remote.carriedByUserId
+                    carriedByUserId = remote.carriedByUserId,
+                    placementAccuracyMeters = remote.placementAccuracyMeters,
+                    placementLocationTimestamp = remote.placementLocationTimestamp
+                        ?.let(::parseTimestamp),
+                    placementLocationProvider = remote.placementLocationProvider
                 )
 
                 val dist = remote.distanceMeters?.toFloat()
@@ -736,6 +770,17 @@ class DropRepository(
     suspend fun unlockDrop(dropId: String): Boolean {
         val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return false
         return try {
+            val alreadyUnlocked = SupabaseManager.client.postgrest["unlocked_drops"]
+                .select {
+                    filter {
+                        eq("user_id", currentUser.id)
+                        eq("drop_id", dropId)
+                    }
+                }
+                .decodeList<UnlockedDrop>()
+                .isNotEmpty()
+            if (alreadyUnlocked) return true
+
             SupabaseManager.client.postgrest["unlocked_drops"].insert(
                 com.somewhere.app.data.remote.UnlockedDrop(
                     id = java.util.UUID.randomUUID().toString(),
@@ -752,16 +797,21 @@ class DropRepository(
         }
     }
 
+    suspend fun getUnlockedDropIds(): Set<String> {
+        val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return emptySet()
+        return runCatching {
+            SupabaseManager.client.postgrest["unlocked_drops"]
+                .select { filter { eq("user_id", currentUser.id) } }
+                .decodeList<UnlockedDrop>()
+                .mapTo(mutableSetOf()) { it.dropId }
+        }.getOrDefault(emptySet())
+    }
+
     suspend fun getUnlockedDrops(): List<Drop> {
         val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return emptyList()
         return runCatching {
-            val unlocked = SupabaseManager.client.postgrest["unlocked_drops"]
-                .select { filter { eq("user_id", currentUser.id) } }
-                .decodeList<UnlockedDrop>()
-                
-            if (unlocked.isEmpty()) return@runCatching emptyList()
-
-            val ids = unlocked.map { it.dropId }
+            val ids = getUnlockedDropIds().toList()
+            if (ids.isEmpty()) return@runCatching emptyList()
             
             val dropsResponse = SupabaseManager.client.postgrest["drops"]
                 .select { filter { isIn("id", ids) } }
@@ -788,7 +838,11 @@ class DropRepository(
                     fileName = remote.fileName,
                     fileSize = remote.fileSize,
                     isHitchhiker = remote.isHitchhiker,
-                    carriedByUserId = remote.carriedByUserId
+                    carriedByUserId = remote.carriedByUserId,
+                    placementAccuracyMeters = remote.placementAccuracyMeters,
+                    placementLocationTimestamp = remote.placementLocationTimestamp
+                        ?.let(::parseTimestamp),
+                    placementLocationProvider = remote.placementLocationProvider
                 )
             }.sortedByDescending { it.timestamp }
         }.onFailure {
@@ -826,7 +880,11 @@ class DropRepository(
                 fileName = remote.fileName,
                 fileSize = remote.fileSize,
                 isHitchhiker = remote.isHitchhiker,
-                carriedByUserId = remote.carriedByUserId
+                carriedByUserId = remote.carriedByUserId,
+                placementAccuracyMeters = remote.placementAccuracyMeters,
+                placementLocationTimestamp = remote.placementLocationTimestamp
+                    ?.let(::parseTimestamp),
+                placementLocationProvider = remote.placementLocationProvider
             )
         }.getOrNull()
     }
@@ -903,7 +961,11 @@ class DropRepository(
                         fileName = remote.fileName,
                         fileSize = remote.fileSize,
                         isHitchhiker = remote.isHitchhiker,
-                        carriedByUserId = remote.carriedByUserId
+                        carriedByUserId = remote.carriedByUserId,
+                        placementAccuracyMeters = remote.placementAccuracyMeters,
+                        placementLocationTimestamp = remote.placementLocationTimestamp
+                            ?.let(::parseTimestamp),
+                        placementLocationProvider = remote.placementLocationProvider
                     )
                 )
             }
@@ -927,7 +989,16 @@ class DropRepository(
         }.getOrElse { false }
     }
 
-    suspend fun passOnHitchhiker(dropId: String, lat: Double, lon: Double, photoUri: Uri?, context: android.content.Context): Boolean {
+    suspend fun passOnHitchhiker(
+        dropId: String,
+        lat: Double,
+        lon: Double,
+        photoUri: Uri?,
+        context: android.content.Context,
+        placementAccuracyMeters: Float? = null,
+        placementLocationTimestamp: Long? = null,
+        placementLocationProvider: String? = null
+    ): Boolean {
         val currentUser = SupabaseManager.client.auth.currentUserOrNull() ?: return false
         return runCatching {
             var uploadedUrl: String? = null
@@ -958,14 +1029,29 @@ class DropRepository(
                 .update({
                     set("latitude", lat)
                     set("longitude", lon)
-                    set("carried_by_user_id", null as String?) 
+                    set("carried_by_user_id", null as String?)
+                    set("placement_accuracy_m", placementAccuracyMeters)
+                    set(
+                        "placement_location_timestamp",
+                        placementLocationTimestamp?.let { Instant.ofEpochMilli(it).toString() }
+                    )
+                    set("placement_location_provider", placementLocationProvider)
                 }) {
                     filter { eq("id", dropId) }
                 }
 
             val localDrop = dao.getDropById(dropId)
             if (localDrop != null) {
-                dao.insert(localDrop.copy(latitude = lat, longitude = lon, carriedByUserId = null))
+                dao.insert(
+                    localDrop.copy(
+                        latitude = lat,
+                        longitude = lon,
+                        carriedByUserId = null,
+                        placementAccuracyMeters = placementAccuracyMeters,
+                        placementLocationTimestamp = placementLocationTimestamp,
+                        placementLocationProvider = placementLocationProvider
+                    )
+                )
             }
             true
         }.onFailure { it.printStackTrace() }.getOrElse { false }

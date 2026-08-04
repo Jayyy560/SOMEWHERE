@@ -28,6 +28,9 @@ interface DropDao {
     @Query("DELETE FROM drops")
     suspend fun deleteAll()
 
+    @Query("DELETE FROM drops WHERE authorId = :userId")
+    suspend fun deleteAllByAuthor(userId: String)
+
     /**
      * Coarse bounding-box query — we do precise Haversine filtering in the repository.
      * delta is a rough lat/lon offset for the bounding box.

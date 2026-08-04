@@ -55,6 +55,7 @@ import androidx.compose.material.icons.filled.LockOpen
 @Composable
 fun ProfileScreen(
     onBack: () -> Unit,
+    onExplore: () -> Unit,
     viewModel: ProfileViewModel = hiltViewModel()
 ) {
     val myDrops by viewModel.myDrops.collectAsState()
@@ -225,14 +226,16 @@ fun ProfileScreen(
                         },
                         text = { Text("Discovered (${visibleUnlockedDrops.size})") }
                     )
-                    Tab(
-                        selected = selectedTabIndex == 2,
-                        onClick = { 
-                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                            selectedTabIndex = 2 
-                        },
-                        text = { Text("Backpack (${visibleCarriedDrops.size})") }
-                    )
+                    if (com.somewhere.app.PrototypeFeatures.SHOW_HITCHHIKER) {
+                        Tab(
+                            selected = selectedTabIndex == 2,
+                            onClick = {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                selectedTabIndex = 2
+                            },
+                            text = { Text("Backpack (${visibleCarriedDrops.size})") }
+                        )
+                    }
                 }
             }
             
@@ -310,8 +313,8 @@ fun ProfileScreen(
                         )
                         Spacer(modifier = Modifier.height(24.dp))
                         SomewhereButton(
-                            text = "Go to Map",
-                            onClick = onBack
+                            text = "Explore Nearby",
+                            onClick = onExplore
                         )
                     }
                 } else {
@@ -343,8 +346,14 @@ fun ProfileScreen(
                                             if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
                                                 hiddenDropIds.remove(dropId)
                                             } else {
-                                                viewModel.deleteDrop(drop)
-                                                hiddenDropIds.remove(dropId)
+                                                viewModel.deleteDrop(drop) { deleted ->
+                                                    hiddenDropIds.remove(dropId)
+                                                    if (!deleted) {
+                                                        scope.launch {
+                                                            snackbarHostState.showSnackbar("Could not delete Drop. Try again.")
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
@@ -401,7 +410,13 @@ fun ProfileScreen(
                 confirmButton = {
                     TextButton(onClick = {
                         showDeleteConfirm = false
-                        viewModel.deleteAccount { onBack() }
+                        viewModel.deleteAccount { error ->
+                            if (error == null) {
+                                onBack()
+                            } else {
+                                scope.launch { snackbarHostState.showSnackbar(error) }
+                            }
+                        }
                     }) {
                         Text("Delete", color = SomewhereColors.Error)
                     }
@@ -430,8 +445,14 @@ fun ProfileScreen(
                         if (result == androidx.compose.material3.SnackbarResult.ActionPerformed) {
                             hiddenDropIds.remove(dropId)
                         } else {
-                            viewModel.deleteDrop(drop)
-                            hiddenDropIds.remove(dropId)
+                            viewModel.deleteDrop(drop) { deleted ->
+                                hiddenDropIds.remove(dropId)
+                                if (!deleted) {
+                                    scope.launch {
+                                        snackbarHostState.showSnackbar("Could not delete Drop. Try again.")
+                                    }
+                                }
+                            }
                         }
                     }
                 },

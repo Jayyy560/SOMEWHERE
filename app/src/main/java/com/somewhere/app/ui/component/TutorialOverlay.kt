@@ -52,7 +52,11 @@ fun TutorialOverlay(
         TutorialPageData(
             eyebrow = "CHOOSE WHAT HAPPENS NEXT",
             title = "Not every Drop stays",
-            description = "Permanent Drops stay where they were left. Moments expire. Hitchhikers can be picked up and released somewhere new.",
+            description = if (com.somewhere.app.PrototypeFeatures.SHOW_HITCHHIKER) {
+                "Permanent Drops stay where they were left. Moments expire. Hitchhikers can be picked up and released somewhere new."
+            } else {
+                "Permanent Drops stay where they were left. Moments disappear after the duration you choose."
+            },
             kind = TutorialStory.JOURNEY
         )
     )
@@ -330,11 +334,13 @@ private fun BoxScope.DiscoverArtwork(accent: Color) {
 
 @Composable
 private fun BoxScope.JourneyArtwork(accent: Color) {
+    val showHitchhiker = com.somewhere.app.PrototypeFeatures.SHOW_HITCHHIKER
     Canvas(modifier = Modifier.fillMaxSize()) {
         val y = size.height * 0.48f
         val startX = 52.dp.toPx()
         val endX = size.width - 52.dp.toPx()
-        val step = (endX - startX) / 2f
+        val pointCount = if (showHitchhiker) 3 else 2
+        val step = (endX - startX) / (pointCount - 1)
 
         drawLine(
             color = accent.copy(alpha = 0.28f),
@@ -342,10 +348,12 @@ private fun BoxScope.JourneyArtwork(accent: Color) {
             end = Offset(endX, y),
             strokeWidth = 1.dp.toPx()
         )
-        repeat(3) { index ->
+        repeat(pointCount) { index ->
             val point = Offset(startX + step * index, y)
             drawCircle(
-                color = accent.copy(alpha = if (index == 2) 0.18f else 0.08f),
+                color = accent.copy(
+                    alpha = if (showHitchhiker && index == 2) 0.18f else 0.08f
+                ),
                 radius = 31.dp.toPx(),
                 center = point
             )
@@ -367,14 +375,20 @@ private fun BoxScope.JourneyArtwork(accent: Color) {
         icon = Icons.Default.Schedule,
         label = "Moment",
         accent = accent,
-        modifier = Modifier.align(Alignment.Center)
+        modifier = if (showHitchhiker) {
+            Modifier.align(Alignment.Center)
+        } else {
+            Modifier.align(Alignment.CenterEnd).padding(end = 28.dp)
+        }
     )
-    JourneyStop(
-        icon = Icons.Default.DirectionsWalk,
-        label = "Hitchhiker",
-        accent = accent,
-        modifier = Modifier.align(Alignment.CenterEnd).padding(end = 22.dp)
-    )
+    if (showHitchhiker) {
+        JourneyStop(
+            icon = Icons.Default.DirectionsWalk,
+            label = "Hitchhiker",
+            accent = accent,
+            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 22.dp)
+        )
+    }
 }
 
 @Composable

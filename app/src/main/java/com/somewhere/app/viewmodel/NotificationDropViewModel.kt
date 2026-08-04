@@ -36,8 +36,16 @@ class NotificationDropViewModel @Inject constructor(
         }
     }
 
-    fun delete(drop: Drop) {
-        viewModelScope.launch { repository.deleteDrop(drop) }
+    fun delete(drop: Drop, onResult: (Boolean) -> Unit) {
+        viewModelScope.launch {
+            val deleted = repository.deleteDrop(drop)
+            if (!deleted) {
+                _uiState.value = _uiState.value.copy(
+                    error = "Could not delete this Drop. Check your connection and try again."
+                )
+            }
+            onResult(deleted)
+        }
     }
 
     fun report(dropId: String) {

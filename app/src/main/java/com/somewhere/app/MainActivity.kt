@@ -1,6 +1,7 @@
 package com.somewhere.app
 
 import android.os.Bundle
+import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -48,6 +49,18 @@ private enum class AuthCategory { LOADING, AUTHENTICATED, NEEDS_PASSWORD, NOT_AU
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     private val _isPipMode = MutableStateFlow(false)
+    private var pendingDropId by mutableStateOf<String?>(null)
+
+    private fun captureNavigationIntent(intent: Intent?) {
+        pendingDropId = intent?.getStringExtra("open_drop_id") ?: pendingDropId
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        captureNavigationIntent(intent)
+        SupabaseManager.client.handleDeeplinks(intent)
+    }
 
     override fun onPictureInPictureModeChanged(
         isInPictureInPictureMode: Boolean,
@@ -76,6 +89,7 @@ class MainActivity : ComponentActivity() {
         windowInsetsController.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         windowInsetsController.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
 
+        captureNavigationIntent(intent)
         SupabaseManager.client.handleDeeplinks(intent)
 
         setContent {
@@ -149,6 +163,18 @@ class MainActivity : ComponentActivity() {
                                 } else {
                                     val startDest = com.somewhere.app.ui.navigation.NavDestinations.MAIN_PAGER
                                     SomewhereNavGraph(navController = navController, startDestination = startDest)
+                                    val dropToOpen = pendingDropId
+                                    LaunchedEffect(dropToOpen) {
+                                        if (!dropToOpen.isNullOrBlank()) {
+                                            navController.navigate(
+                                                com.somewhere.app.ui.navigation.NavDestinations
+                                                    .createNotificationDropRoute(dropToOpen)
+                                            ) {
+                                                launchSingleTop = true
+                                            }
+                                            pendingDropId = null
+                                        }
+                                    }
                                 }
                             }
                             AuthCategory.NEEDS_PASSWORD -> {

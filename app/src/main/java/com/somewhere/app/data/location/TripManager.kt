@@ -26,6 +26,7 @@ object TripManager {
     private var routeSearchJob: kotlinx.coroutines.Job? = null
     private var locationClient: com.google.android.gms.location.FusedLocationProviderClient? = null
     private var locationCallback: com.google.android.gms.location.LocationCallback? = null
+    private var pendingNavigationStart = false
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -157,6 +158,7 @@ object TripManager {
     }
 
     fun resetTrip() {
+        pendingNavigationStart = false
         _uiState.value = TripUiState()
         geofenceManager?.clearGeofences()
     }
@@ -212,6 +214,7 @@ object TripManager {
             if (currentLat != null && currentLng != null) {
                 origin = "$currentLat,$currentLng"
             } else {
+                pendingNavigationStart = false
                 _uiState.value = state.copy(error = "Waiting for GPS signal... please wait a moment.")
                 return
             }
@@ -267,9 +270,8 @@ object TripManager {
                     }
 
                     // 2. Driving Route Logic
-                    var route: TripRepository.RouteResult? = null
-                    try {
-                        route = repo.fetchRoute(origin, destination, waypoint)
+                    val route = try {
+                        repo.fetchRoute(origin, destination, waypoint)
                     } catch (e: Exception) {
                         val msg = e.message ?: ""
                         if (msg.contains("NOT_FOUND", ignoreCase = true) || msg.contains("ZERO_RESULTS", ignoreCase = true)) {
@@ -279,8 +281,6 @@ object TripManager {
                             throw e
                         }
                     }
-
-                    if (route == null) return@launch
                     
                     val elapsed = System.currentTimeMillis() - startTime
                     if (elapsed < 2000L) kotlinx.coroutines.delay(2000L - elapsed)
@@ -303,6 +303,7 @@ object TripManager {
                         allDropsOnRoute = filtered,
                         filteredDrops = filtered
                     )
+                    completePendingNavigationIfNeeded()
                 } else if (radiusMeters != null) {
                     // Radius Search Logic (No Route)
                     val centerParts = origin.split(",")
@@ -338,6 +339,7 @@ object TripManager {
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
+                pendingNavigationStart = false
                 _uiState.value = _uiState.value.copy(error = e.message, isLoading = false)
             }
         }
@@ -360,7 +362,7 @@ object TripManager {
         _uiState.value = _uiState.value.copy(selectedDrop = drop)
     }
 
-    fun startNavigation(context: Context) {
+    fun startNavigation() {
         val state = _uiState.value
         
         // If there is no route generated yet (e.g. they just did a radius search)
@@ -368,6 +370,7 @@ object TripManager {
         if (state.routePolyline.isEmpty()) {
             val targetDrop = state.selectedDrop ?: state.filteredDrops.firstOrNull()
             if (targetDrop != null) {
+                pendingNavigationStart = true
                 val loc = state.currentUserLocation
                 if (loc != null) {
                     routeToDrop(targetDrop, loc.latitude, loc.longitude)
@@ -376,8 +379,29 @@ object TripManager {
                 }
                 return
             }
+            _uiState.value = state.copy(
+                error = "No Drops were found to start a trip.",
+                isNavigating = false,
+                phase = TripPhase.ROUTE_VIEW
+            )
+            return
         }
 
+        beginNavigation()
+    }
+
+    private fun completePendingNavigationIfNeeded() {
+        if (!pendingNavigationStart) return
+        pendingNavigationStart = false
+        if (_uiState.value.routePolyline.isEmpty()) {
+            _uiState.value = _uiState.value.copy(error = "Could not build this route.")
+            return
+        }
+        beginNavigation()
+    }
+
+    private fun beginNavigation() {
+        val state = _uiState.value
         _uiState.value = state.copy(
             phase = TripPhase.NAVIGATING,
             isNavigating = true
@@ -386,6 +410,7 @@ object TripManager {
     }
 
     fun stopNavigation() {
+        pendingNavigationStart = false
         _uiState.value = _uiState.value.copy(
             phase = TripPhase.ROUTE_VIEW,
             isNavigating = false,

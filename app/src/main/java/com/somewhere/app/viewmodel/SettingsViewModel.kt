@@ -54,10 +54,14 @@ class SettingsViewModel @Inject constructor(
     fun deleteAllDrops() {
         _uiState.value = _uiState.value.copy(isClearing = true, message = null)
         viewModelScope.launch {
-            repository.deleteAllDrops()
+            val deleted = repository.deleteAllDrops()
             _uiState.value = _uiState.value.copy(
                 isClearing = false,
-                message = "All drops deleted"
+                message = if (deleted) {
+                    "All of your Drops were permanently deleted"
+                } else {
+                    "Could not delete your Drops. Nothing was removed; try again."
+                }
             )
         }
     }

@@ -85,6 +85,27 @@ fun TripScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val locationPermission = rememberPermissionState(Manifest.permission.ACCESS_FINE_LOCATION)
+    var showNotificationPermissionPrompt by remember { mutableStateOf(false) }
+    val notificationPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) {
+        showNotificationPermissionPrompt = false
+        tripViewModel.startNavigation()
+    }
+
+    val requestNavigationStart: () -> Unit = {
+        val needsNotificationPermission =
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+                androidx.core.content.ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (needsNotificationPermission) {
+            showNotificationPermissionPrompt = true
+        } else {
+            tripViewModel.startNavigation()
+        }
+    }
 
     // Get current location
     var previewDrop by remember { mutableStateOf<NearbyDrop?>(null) }
@@ -130,7 +151,7 @@ fun TripScreen(
                     else tripViewModel.resetTrip()
                 },
                 onDropSelected = tripViewModel::selectDrop,
-                onStartNavigation = tripViewModel::startNavigation,
+                onStartNavigation = requestNavigationStart,
                 onStopNavigation = tripViewModel::stopNavigation,
                 onDismissApproaching = tripViewModel::dismissApproachingDrop,
                 setPreviewDrop = { previewDrop = it }
@@ -154,6 +175,34 @@ fun TripScreen(
                 Text(error)
             }
         }
+
+        if (showNotificationPermissionPrompt) {
+            AlertDialog(
+                onDismissRequest = { showNotificationPermissionPrompt = false },
+                title = { Text("Stay alerted during your trip") },
+                text = {
+                    Text("Allow notifications so Wayfinder can alert you when a matching Drop is ahead, even while the app is in the background.")
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            notificationPermissionLauncher.launch(
+                                android.Manifest.permission.POST_NOTIFICATIONS
+                            )
+                        }
+                    ) { Text("Allow") }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = {
+                            showNotificationPermissionPrompt = false
+                            tripViewModel.startNavigation()
+                        }
+                    ) { Text("Not now") }
+                },
+                containerColor = SomewhereColors.Surface
+            )
+        }
         
         // Preview Sheet
         previewDrop?.let { drop ->
@@ -168,7 +217,12 @@ fun TripScreen(
                 authorName = drop.authorName ?: "Anonymous",
                 authorAvatarUrl = drop.authorAvatarUrl,
                 authorId = drop.authorId ?: "",
-                category = drop.category
+                category = drop.category,
+                placementAccuracyMeters = drop.placementAccuracyMeters,
+                placementLocationTimestamp = drop.placementLocationTimestamp?.let {
+                    runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull()
+                },
+                placementLocationProvider = drop.placementLocationProvider
             )
 
             DropDetailSheet(

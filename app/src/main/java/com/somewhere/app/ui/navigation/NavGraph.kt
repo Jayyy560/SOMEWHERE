@@ -6,6 +6,8 @@ import androidx.compose.runtime.Composable
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
 import com.somewhere.app.ui.screen.DiscoveryScreen
 import com.somewhere.app.ui.screen.HomeScreen
 import com.somewhere.app.ui.screen.SettingsScreen
@@ -23,15 +25,16 @@ object NavDestinations {
     const val DISCOVERY = "discovery"
     const val SETTINGS = "settings"
     const val NOTIFICATIONS = "notifications"
-    const val NOTIFICATION_DROP = "notification_drop/{dropId}"
+    const val NOTIFICATION_DROP = "notification_drop/{dropId}?commentAuthor={commentAuthor}"
     const val FIND_SPOT = "find_spot/{imageUrl}"
     
     fun createFindSpotRoute(imageUrl: String): String {
         return "find_spot/${java.net.URLEncoder.encode(imageUrl, "UTF-8")}"
     }
 
-    fun createNotificationDropRoute(dropId: String): String =
-        "notification_drop/${java.net.URLEncoder.encode(dropId, "UTF-8")}"
+    fun createNotificationDropRoute(dropId: String, commentAuthor: String? = null): String =
+        "notification_drop/${java.net.URLEncoder.encode(dropId, "UTF-8")}" +
+            "?commentAuthor=${java.net.URLEncoder.encode(commentAuthor.orEmpty(), "UTF-8")}"
 }
 
 private const val TRANSITION_DURATION = 350
@@ -102,17 +105,38 @@ fun SomewhereNavGraph(
         composable(NavDestinations.NOTIFICATIONS) {
             NotificationScreen(
                 onBack = { navController.popBackStack() },
-                onOpenDrop = { dropId ->
-                    navController.navigate(NavDestinations.createNotificationDropRoute(dropId))
+                onOpenDrop = { notification ->
+                    notification.dropId?.let { dropId ->
+                        navController.navigate(
+                            NavDestinations.createNotificationDropRoute(
+                                dropId = dropId,
+                                commentAuthor = notification.actorName
+                                    .takeIf { notification.type == "comment" }
+                            )
+                        )
+                    }
                 }
             )
         }
 
-        composable(NavDestinations.NOTIFICATION_DROP) { backStackEntry ->
+        composable(
+            route = NavDestinations.NOTIFICATION_DROP,
+            arguments = listOf(
+                navArgument("commentAuthor") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            )
+        ) { backStackEntry ->
             val encodedId = backStackEntry.arguments?.getString("dropId") ?: ""
             val dropId = java.net.URLDecoder.decode(encodedId, "UTF-8")
+            val commentAuthor = backStackEntry.arguments?.getString("commentAuthor")
+                ?.takeIf { it.isNotBlank() }
+                ?.let { java.net.URLDecoder.decode(it, "UTF-8") }
             NotificationDropScreen(
                 dropId = dropId,
+                focusCommentAuthor = commentAuthor,
                 onBack = { navController.popBackStack() },
                 onFindSpot = { imageUrl ->
                     navController.navigate(NavDestinations.createFindSpotRoute(imageUrl))

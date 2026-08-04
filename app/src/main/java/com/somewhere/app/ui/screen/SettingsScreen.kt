@@ -136,7 +136,9 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showConfirm = false },
             title = { Text("Delete all drops?") },
-            text = { Text("This removes all stored drops and their photos from this device.") },
+            text = {
+                Text("This permanently deletes all Drops you created, including their photos, from your account on every device. This cannot be undone.")
+            },
             confirmButton = {
                 SomewhereButton(
                     text = "Delete",

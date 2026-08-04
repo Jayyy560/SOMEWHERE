@@ -8,6 +8,10 @@ import com.somewhere.app.data.location.TripForegroundService
 import com.somewhere.app.data.location.TripManager
 import com.somewhere.app.data.remote.NearbyDrop
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import androidx.lifecycle.viewModelScope
 
 data class TripUiState(
     val phase: TripPhase = TripPhase.INPUT,
@@ -54,6 +58,19 @@ class TripViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         TripManager.initialize(application.applicationContext)
+        viewModelScope.launch {
+            TripManager.uiState
+                .map { it.isNavigating }
+                .distinctUntilChanged()
+                .collect { navigating ->
+                    val intent = Intent(getApplication(), TripForegroundService::class.java)
+                    if (navigating) {
+                        getApplication<Application>().startForegroundService(intent)
+                    } else {
+                        getApplication<Application>().stopService(intent)
+                    }
+                }
+        }
     }
 
     val uiState: StateFlow<TripUiState> = TripManager.uiState
@@ -78,17 +95,11 @@ class TripViewModel(application: Application) : AndroidViewModel(application) {
     fun selectDrop(drop: NearbyDrop?) = TripManager.selectDrop(drop)
 
     fun startNavigation() {
-        TripManager.startNavigation(getApplication())
-        // Start persistent foreground service
-        val intent = Intent(getApplication(), TripForegroundService::class.java)
-        getApplication<Application>().startForegroundService(intent)
+        TripManager.startNavigation()
     }
 
     fun stopNavigation() {
         TripManager.stopNavigation()
-        // Stop persistent foreground service
-        val intent = Intent(getApplication(), TripForegroundService::class.java)
-        getApplication<Application>().stopService(intent)
     }
 
     fun dismissApproachingDrop() = TripManager.dismissApproachingDrop()
