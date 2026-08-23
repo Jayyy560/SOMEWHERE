@@ -91,6 +91,17 @@ private val NightAmbient = AmbientColors(
     pulseColor = Color(0xFFE8D5B7),
 )
 
+private val FoldAmbient = AmbientColors(
+    glassBackground = Color(0xE6151612),
+    glassBorder = Color(0x66F1EFE7),
+    glowPrimary = Color(0xFFD9FF57),
+    glowSecondary = Color(0xFF788254),
+    shadowAmbient = Color(0x52000000),
+    shadowSpot = Color(0x73000000),
+    rimHighlight = Color(0xFFD9FF57),
+    pulseColor = Color(0xFFD9FF57),
+)
+
 /** Interpolate between two palettes field-by-field. [fraction] 0f → [a], 1f → [b]. */
 fun lerp(a: AmbientColors, b: AmbientColors, fraction: Float): AmbientColors {
     val f = fraction.coerceIn(0f, 1f)
@@ -173,6 +184,12 @@ fun rememberAmbientColors(): AmbientColors {
         }
     }
     return colors
+}
+
+@Composable
+fun rememberAmbientColors(theme: AppTheme): AmbientColors {
+    val liquidColors = rememberAmbientColors()
+    return if (theme == AppTheme.FOLD) FoldAmbient else liquidColors
 }
 
 /**

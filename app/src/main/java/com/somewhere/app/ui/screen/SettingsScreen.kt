@@ -23,6 +23,8 @@ import com.somewhere.app.BuildConfig
 import com.somewhere.app.ui.component.SomewhereButton
 import com.somewhere.app.ui.component.SomewhereButtonHierarchy
 import com.somewhere.app.ui.component.SomewhereTopAppBar
+import com.somewhere.app.ui.component.ThemeSelector
+import com.somewhere.app.ui.theme.AppThemePreferences
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.util.SettingsUtils
 import com.somewhere.app.viewmodel.SettingsViewModel
@@ -36,6 +38,7 @@ fun SettingsScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var showConfirm by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val selectedTheme by AppThemePreferences.selectedTheme.collectAsState()
 
     LaunchedEffect(uiState.message) {
         uiState.message?.let {
@@ -67,6 +70,14 @@ fun SettingsScreen(
                 val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://somewhere-privacy-policy.vercel.app/"))
                 context.startActivity(intent)
             }
+
+            Text("APPEARANCE", style = MaterialTheme.typography.labelMedium, color = SomewhereColors.TextSecondary)
+            ThemeSelector(
+                selectedTheme = selectedTheme,
+                onThemeSelected = AppThemePreferences::select
+            )
+
+            HorizontalDivider(color = SomewhereColors.Card)
 
             Text("ACCOUNT", style = MaterialTheme.typography.labelMedium, color = SomewhereColors.TextSecondary)
             SomewhereButton(

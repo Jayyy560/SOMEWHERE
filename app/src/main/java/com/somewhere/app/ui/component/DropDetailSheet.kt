@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CutCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.input.pointer.pointerInput
@@ -94,13 +96,15 @@ import io.github.jan.supabase.gotrue.auth
 import androidx.compose.material3.AlertDialog
 import androidx.compose.ui.semantics.Role
 import com.somewhere.app.ui.theme.SomewhereColors
+import com.somewhere.app.ui.theme.AppTheme
+import com.somewhere.app.ui.theme.LocalAppTheme
 
 // Using theme colors instead of hardcoded hex values
-private val GlassPanelBg = SomewhereColors.GlassBackground
-private val InnerBg = SomewhereColors.Card
-private val TextHi = SomewhereColors.TextPrimary
-private val TextMd = SomewhereColors.TextSecondary
-private val TextLo = SomewhereColors.TextMuted
+private val GlassPanelBg get() = SomewhereColors.GlassBackground
+private val InnerBg get() = SomewhereColors.Card
+private val TextHi get() = SomewhereColors.TextPrimary
+private val TextMd get() = SomewhereColors.TextSecondary
+private val TextLo get() = SomewhereColors.TextMuted
 
 @Composable
 fun DropDetailSheet(
@@ -133,6 +137,11 @@ fun DropDetailSheet(
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
+    val isFoldTheme = LocalAppTheme.current == AppTheme.FOLD
+    val detailShape = if (isFoldTheme) RectangleShape else RoundedCornerShape(24.dp)
+    val detailPanelShape = if (isFoldTheme) RectangleShape else {
+        RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
+    }
     val repository = remember { (context.applicationContext as SomewhereApplication).repository }
 
     var isLiked by remember { mutableStateOf(false) }
@@ -227,9 +236,9 @@ fun DropDetailSheet(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
-                .background(GlassPanelBg, RoundedCornerShape(24.dp))
-                .border(1.dp, SomewhereColors.GlassBorder, RoundedCornerShape(24.dp))
+                .clip(detailShape)
+                .background(GlassPanelBg, detailShape)
+                .border(1.dp, SomewhereColors.GlassBorder, detailShape)
         ) {
             // Drag Handle (Floating on top of image)
             Box(
@@ -237,7 +246,7 @@ fun DropDetailSheet(
                     .padding(top = 12.dp)
                     .width(40.dp)
                     .height(4.dp)
-                    .clip(CircleShape)
+                    .clip(if (isFoldTheme) RectangleShape else CircleShape)
                     .background(SomewhereColors.TextMuted.copy(alpha = 0.5f))
                     .align(Alignment.TopCenter)
                     .zIndex(1f)
@@ -289,7 +298,8 @@ fun DropDetailSheet(
             // Layer 2: Close button (top right)
             Box(
                 Modifier.align(Alignment.TopEnd).padding(10.dp).sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                    .clip(CircleShape).background(SomewhereColors.OverlayLight)
+                    .clip(if (isFoldTheme) RectangleShape else CircleShape)
+                    .background(SomewhereColors.OverlayLight)
                     .clickable(role = Role.Button) { onDismiss() },
                 contentAlignment = Alignment.Center
             ) { Icon(Icons.Default.Close, "Close detail view", Modifier.size(24.dp), Color.White) }
@@ -315,7 +325,7 @@ fun DropDetailSheet(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                    .clip(detailPanelShape)
                     .background(GlassPanelBg)
                     // Own the panel's empty touch area so presses cannot pass
                     // through to the photo preview gesture underneath it.

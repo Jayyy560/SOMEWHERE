@@ -14,6 +14,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import com.somewhere.app.ui.component.SomewhereButton
 import com.somewhere.app.ui.theme.SomewhereColors
+import com.somewhere.app.ui.theme.AppTheme
+import com.somewhere.app.ui.theme.LocalAppTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Person
@@ -141,40 +143,51 @@ fun HomeScreen(
             }
         }
 
-        // Liquid Refraction Logo — positioned slightly above center
-        com.somewhere.app.ui.component.LiquidLogo(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .offset(y = (-80).dp)
-                .alpha(titleAlpha)
-        )
-
-        // Floating Liquid Glass Drops
-        com.somewhere.app.ui.component.FloatingDropsAnimation(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(300.dp)
-                .align(Alignment.Center)
-                .offset(y = 60.dp) // Offset below the title
-                .alpha(titleAlpha * 0.8f) // Fade in with the title but slightly subtler
-        )
-
-        // Action buttons — lower portion
-        Column(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 170.dp)
-                .alpha(buttonsAlpha),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            PressableButton(
-                text = "Explore Nearby",
-                onClick = {
+        if (LocalAppTheme.current == AppTheme.FOLD) {
+            com.somewhere.app.ui.component.FoldHomeExperience(
+                onExplore = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                     onExplore()
-                }
+                },
+                modifier = Modifier.alpha(titleAlpha)
             )
+        } else {
+            // Preserve the original liquid home artwork for the default theme.
+            com.somewhere.app.ui.component.LiquidLogo(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .offset(y = (-80).dp)
+                    .alpha(titleAlpha)
+            )
+
+            com.somewhere.app.ui.component.FloatingDropsAnimation(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(300.dp)
+                    .align(Alignment.Center)
+                    .offset(y = 60.dp)
+                    .alpha(titleAlpha * 0.8f)
+            )
+        }
+
+        // Action buttons — lower portion
+        if (LocalAppTheme.current != AppTheme.FOLD) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 170.dp)
+                    .alpha(buttonsAlpha),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                PressableButton(
+                    text = "Explore Nearby",
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onExplore()
+                    }
+                )
+            }
         }
 
         if (showNamePrompt) {
@@ -301,6 +314,14 @@ private fun PressableButton(
 
 @Composable
 fun NotificationDropIcon(hasNotification: Boolean, onClick: () -> Unit) {
+    if (LocalAppTheme.current == AppTheme.FOLD) {
+        com.somewhere.app.ui.component.FoldNotificationIcon(
+            hasNotification = hasNotification,
+            onClick = onClick
+        )
+        return
+    }
+
     val waveTransition = rememberInfiniteTransition(label = "wave")
     val waveProgress by waveTransition.animateFloat(
         initialValue = 0f, 

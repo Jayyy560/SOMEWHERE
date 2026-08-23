@@ -25,6 +25,7 @@ import com.somewhere.app.data.remote.SupabaseManager
 import com.somewhere.app.ui.screen.AuthScreen
 import com.somewhere.app.ui.navigation.SomewhereNavGraph
 import com.somewhere.app.ui.theme.LocalAmbientColors
+import com.somewhere.app.ui.theme.AppThemePreferences
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.ui.theme.SomewhereTheme
 import com.somewhere.app.ui.theme.rememberAmbientColors
@@ -91,17 +92,19 @@ class MainActivity : ComponentActivity() {
 
         captureNavigationIntent(intent)
         SupabaseManager.client.handleDeeplinks(intent)
+        AppThemePreferences.initialize(applicationContext)
 
         setContent {
             val pipMode by _isPipMode.collectAsState()
-            val ambientColors = rememberAmbientColors()
+            val selectedTheme by AppThemePreferences.selectedTheme.collectAsState()
+            val ambientColors = rememberAmbientColors(selectedTheme)
             val navController = rememberNavController()
 
             CompositionLocalProvider(
                 LocalPipMode provides pipMode,
                 LocalAmbientColors provides ambientColors
             ) {
-                SomewhereTheme {
+                SomewhereTheme(theme = selectedTheme) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
                         color = SomewhereColors.Background

@@ -8,6 +8,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Home
@@ -19,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.selected
@@ -31,7 +33,11 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.border
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
+import com.somewhere.app.ui.theme.AppTheme
+import com.somewhere.app.ui.theme.LocalAppTheme
+import com.somewhere.app.ui.theme.SomewhereColors
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -48,6 +54,17 @@ fun FloatingBottomNav(
         add(Icons.Default.Home to "Home")
         add(Icons.Default.Add to "Create")
         add(Icons.Default.Person to "Profile")
+    }
+
+    if (LocalAppTheme.current == AppTheme.FOLD) {
+        FoldBottomNav(
+            tabs = tabs,
+            selectedIndex = pagerState.currentPage,
+            onTabSelected = onTabSelected,
+            onProfileLongClick = onProfileLongClick,
+            modifier = modifier
+        )
+        return
     }
 
     var isWavy by remember { mutableStateOf(false) }
@@ -155,6 +172,123 @@ fun FloatingBottomNav(
                 )
             }
         }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun FoldBottomNav(
+    tabs: List<Pair<ImageVector, String>>,
+    selectedIndex: Int,
+    onTabSelected: (Int) -> Unit,
+    onProfileLongClick: () -> Unit,
+    modifier: Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(78.dp)
+            .background(SomewhereColors.Surface)
+            .drawBehind {
+                drawLine(
+                    color = SomewhereColors.CardBorder,
+                    start = androidx.compose.ui.geometry.Offset.Zero,
+                    end = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+            .padding(horizontal = 14.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        tabs.forEachIndexed { index, (icon, label) ->
+            FoldNavItem(
+                icon = icon,
+                label = label,
+                selected = selectedIndex == index,
+                onClick = { onTabSelected(index) },
+                onLongClick = {
+                    if (label == "Profile") onProfileLongClick()
+                },
+                modifier = Modifier.weight(1f)
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun FoldNavItem(
+    icon: ImageVector,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val lift by animateDpAsState(
+        targetValue = if (selected) (-10).dp else 0.dp,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy),
+        label = "foldNavLift"
+    )
+    val interactionSource = remember { MutableInteractionSource() }
+
+    Column(
+        modifier = modifier
+            .offset(y = lift)
+            .height(if (selected) 72.dp else 62.dp)
+            .background(if (selected) SomewhereColors.Card else Color.Transparent)
+            .drawBehind {
+                if (selected) {
+                    drawLine(
+                        color = SomewhereColors.AccentPurple,
+                        start = androidx.compose.ui.geometry.Offset.Zero,
+                        end = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                        strokeWidth = 2.dp.toPx()
+                    )
+                    drawLine(
+                        color = SomewhereColors.CardBorder,
+                        start = androidx.compose.ui.geometry.Offset.Zero,
+                        end = androidx.compose.ui.geometry.Offset(0f, size.height),
+                        strokeWidth = 1.dp.toPx()
+                    )
+                    drawLine(
+                        color = SomewhereColors.CardBorder,
+                        start = androidx.compose.ui.geometry.Offset(size.width, 0f),
+                        end = androidx.compose.ui.geometry.Offset(size.width, size.height),
+                        strokeWidth = 1.dp.toPx()
+                    )
+                }
+            }
+            .semantics {
+                this.selected = selected
+                stateDescription = if (selected) "Selected" else "Not selected"
+            }
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = null,
+                role = androidx.compose.ui.semantics.Role.Tab,
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = if (selected) SomewhereColors.TextPrimary else SomewhereColors.TextSecondary,
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(Modifier.height(3.dp))
+        Text(
+            text = label.uppercase(),
+            color = if (selected) SomewhereColors.TextPrimary else SomewhereColors.TextSecondary,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = 0.9.sp,
+            maxLines = 1
+        )
     }
 }
 

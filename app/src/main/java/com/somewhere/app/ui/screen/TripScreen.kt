@@ -10,6 +10,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CutCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -52,6 +54,8 @@ import com.somewhere.app.LocalPipMode
 import com.somewhere.app.data.remote.NearbyDrop
 import com.somewhere.app.ui.component.DropDetailSheet
 import com.somewhere.app.ui.theme.SomewhereColors
+import com.somewhere.app.ui.theme.AppTheme
+import com.somewhere.app.ui.theme.LocalAppTheme
 import com.somewhere.app.viewmodel.TripPhase
 import com.somewhere.app.viewmodel.TripUiState
 import com.somewhere.app.viewmodel.TripViewModel
@@ -276,6 +280,7 @@ private fun TripInputPhase(
     onSearch: () -> Unit
 ) {
     val scrollState = rememberScrollState()
+    val isFoldTheme = LocalAppTheme.current == AppTheme.FOLD
 
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
@@ -331,7 +336,11 @@ private fun TripInputPhase(
         Spacer(modifier = Modifier.height(48.dp))
 
         // ── Iridescent Glass Search Bar with Send Button ──
-        val shape = if (uiState.isLoading) com.somewhere.app.ui.component.WavyPillShape(waveProgress, 2.5f) else RoundedCornerShape(percent = 50)
+        val shape = when {
+            isFoldTheme -> RectangleShape
+            uiState.isLoading -> com.somewhere.app.ui.component.WavyPillShape(waveProgress, 2.5f)
+            else -> RoundedCornerShape(percent = 50)
+        }
         
         val primaryGlow by androidx.compose.animation.animateColorAsState(
             targetValue = if (uiState.isLoading) com.somewhere.app.ui.theme.LocalAmbientColors.current.glowPrimary else Color.Transparent,
@@ -374,49 +383,52 @@ private fun TripInputPhase(
                     spotColor = shadowSpot.copy(alpha = 0.3f)
                 )
                 .clip(shape)
-                .background(Color.White.copy(alpha = 0.02f))
-                .background(
-                    brush = androidx.compose.ui.graphics.Brush.radialGradient(
-                        colors = listOf(
-                            primaryGlow.copy(alpha = 0.2f), 
-                            Color.Transparent
-                        ),
-                        center = Offset(100f, 50f),
-                        radius = 300f
-                    )
-                )
-                .background(
-                    brush = androidx.compose.ui.graphics.Brush.radialGradient(
-                        colors = listOf(
-                            secondaryGlow.copy(alpha = 0.15f), 
-                            Color.Transparent
-                        ),
-                        center = Offset(500f, 150f),
-                        radius = 400f
-                    )
-                )
-                .background(
-                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.35f),
-                            Color.Transparent,
-                            Color.White.copy(alpha = 0.1f),
-                            Color.White.copy(alpha = 0.4f)
-                        )
-                    )
-                )
-                .border(
-                    width = 2.dp,
-                    brush = androidx.compose.ui.graphics.Brush.linearGradient(
-                        colors = listOf(
-                            Color.White,
-                            primaryGlow.copy(alpha = 0.6f),
-                            Color.White.copy(alpha = 0.1f),
-                            secondaryGlow.copy(alpha = 0.5f),
-                            Color.White
-                        )
-                    ),
-                    shape = shape
+                .then(
+                    if (isFoldTheme) {
+                        Modifier
+                            .background(SomewhereColors.GlassBackground)
+                            .border(1.dp, SomewhereColors.GlassBorder, shape)
+                    } else {
+                        Modifier
+                            .background(Color.White.copy(alpha = 0.02f))
+                            .background(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(primaryGlow.copy(alpha = 0.2f), Color.Transparent),
+                                    center = Offset(100f, 50f),
+                                    radius = 300f
+                                )
+                            )
+                            .background(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(secondaryGlow.copy(alpha = 0.15f), Color.Transparent),
+                                    center = Offset(500f, 150f),
+                                    radius = 400f
+                                )
+                            )
+                            .background(
+                                brush = Brush.verticalGradient(
+                                    colors = listOf(
+                                        Color.White.copy(alpha = 0.35f),
+                                        Color.Transparent,
+                                        Color.White.copy(alpha = 0.1f),
+                                        Color.White.copy(alpha = 0.4f)
+                                    )
+                                )
+                            )
+                            .border(
+                                width = 2.dp,
+                                brush = Brush.linearGradient(
+                                    colors = listOf(
+                                        Color.White,
+                                        primaryGlow.copy(alpha = 0.6f),
+                                        Color.White.copy(alpha = 0.1f),
+                                        secondaryGlow.copy(alpha = 0.5f),
+                                        Color.White
+                                    )
+                                ),
+                                shape = shape
+                            )
+                    }
                 ),
             contentAlignment = Alignment.CenterStart
         ) {
@@ -501,9 +513,12 @@ private fun TripInputPhase(
                 Box(
                     modifier = Modifier
                         .size(48.dp)
-                        .clip(CircleShape)
+                        .clip(if (isFoldTheme) RectangleShape else CircleShape)
                         .background(SomewhereColors.GlassBackground)
-                        .border(BorderStroke(0.5.dp, SomewhereColors.GlassBorder), CircleShape)
+                        .border(
+                            BorderStroke(0.5.dp, SomewhereColors.GlassBorder),
+                            if (isFoldTheme) RectangleShape else CircleShape
+                        )
                         .clickable(role = androidx.compose.ui.semantics.Role.Button) { onSearch() },
                     contentAlignment = Alignment.Center
                 ) {
@@ -531,9 +546,13 @@ private fun TripInputPhase(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(if (isFoldTheme) RectangleShape else RoundedCornerShape(16.dp))
                     .background(SomewhereColors.GlassBackground)
-                    .border(0.5.dp, SomewhereColors.GlassBorder, RoundedCornerShape(16.dp))
+                    .border(
+                        0.5.dp,
+                        SomewhereColors.GlassBorder,
+                        if (isFoldTheme) RectangleShape else RoundedCornerShape(16.dp)
+                    )
             ) {
                 uiState.destinationSuggestions.forEachIndexed { index, suggestion ->
                     Row(
@@ -581,9 +600,13 @@ private fun TripInputPhase(
             items(quickActions) { action ->
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
+                        .clip(if (isFoldTheme) RoundedCornerShape(2.dp) else RoundedCornerShape(20.dp))
                         .background(SomewhereColors.GlassBackground)
-                        .border(0.5.dp, SomewhereColors.GlassBorder, RoundedCornerShape(20.dp))
+                        .border(
+                            0.5.dp,
+                            SomewhereColors.GlassBorder,
+                            if (isFoldTheme) RoundedCornerShape(2.dp) else RoundedCornerShape(20.dp)
+                        )
                         .clickable {
                             onPromptChange(action.query, action.query.length)
                             onSearch()
@@ -623,8 +646,12 @@ private fun TripInputPhase(
             items(categoryChips) { chip ->
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .border(0.5.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(20.dp))
+                        .clip(if (isFoldTheme) RoundedCornerShape(2.dp) else RoundedCornerShape(20.dp))
+                        .border(
+                            0.5.dp,
+                            if (isFoldTheme) SomewhereColors.CardBorder else Color.White.copy(alpha = 0.08f),
+                            if (isFoldTheme) RoundedCornerShape(2.dp) else RoundedCornerShape(20.dp)
+                        )
                         .clickable {
                             onPromptChange(chip.query, chip.query.length)
                             onSearch()

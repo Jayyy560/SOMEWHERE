@@ -65,6 +65,8 @@ import com.somewhere.app.ui.component.DropOverlayCard
 import com.somewhere.app.ui.component.PingPulse
 import com.somewhere.app.ui.component.SomewhereButton
 import com.somewhere.app.ui.theme.SomewhereColors
+import com.somewhere.app.ui.theme.AppTheme
+import com.somewhere.app.ui.theme.LocalAppTheme
 import com.somewhere.app.util.LocationUtils
 import com.somewhere.app.util.rememberReduceMotionEnabled
 import com.somewhere.app.util.NetworkStatus
@@ -97,6 +99,7 @@ fun DiscoveryScreen(
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
     val screenWidthPx = with(density) { screenWidthDp.dp.toPx() }
     val ambient = com.somewhere.app.ui.theme.LocalAmbientColors.current
+    val isFoldTheme = LocalAppTheme.current == AppTheme.FOLD
     val networkStatus = rememberNetworkStatus()
     val cameraPermission = rememberPermissionState(Manifest.permission.CAMERA)
     var openCameraAfterPermission by remember { mutableStateOf(false) }
@@ -718,8 +721,12 @@ fun DiscoveryScreen(
                     modifier = Modifier
                         .size(48.dp)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(Color.Transparent)
-                        .border(0.5.dp, SomewhereColors.CardBorder, RoundedCornerShape(2.dp))
+                        .background(if (isFoldTheme) SomewhereColors.GlassBackground else Color.Transparent)
+                        .border(
+                            0.5.dp,
+                            if (isFoldTheme) SomewhereColors.GlassBorder else SomewhereColors.CardBorder,
+                            RoundedCornerShape(2.dp)
+                        )
                 ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -741,8 +748,12 @@ fun DiscoveryScreen(
                     modifier = Modifier
                         .size(48.dp)
                         .clip(RoundedCornerShape(2.dp))
-                        .background(Color.Transparent)
-                        .border(0.5.dp, SomewhereColors.CardBorder, RoundedCornerShape(2.dp))
+                        .background(if (isFoldTheme) SomewhereColors.GlassBackground else Color.Transparent)
+                        .border(
+                            0.5.dp,
+                            if (isFoldTheme) SomewhereColors.GlassBorder else SomewhereColors.CardBorder,
+                            RoundedCornerShape(2.dp)
+                        )
                 ) {
                     Icon(
                         imageVector = if (showListView) Icons.Default.Map else Icons.Default.List,
@@ -763,11 +774,11 @@ fun DiscoveryScreen(
                     .padding(top = 16.dp)
             ) {
                 Surface(
-                    color = Color.Transparent,
+                    color = if (isFoldTheme) SomewhereColors.GlassBackground else Color.Transparent,
                     shape = RoundedCornerShape(2.dp),
                     border = androidx.compose.foundation.BorderStroke(
                         0.5.dp,
-                        SomewhereColors.CardBorder
+                        if (isFoldTheme) SomewhereColors.GlassBorder else SomewhereColors.CardBorder
                     ),
                     onClick = { categoryExpanded = true }
                 ) {

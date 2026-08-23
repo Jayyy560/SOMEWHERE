@@ -39,6 +39,8 @@ import com.somewhere.app.util.LocationUtils
 import com.somewhere.app.util.getCategoryIcon
 import com.somewhere.app.util.rememberReduceMotionEnabled
 import com.somewhere.app.viewmodel.DiscoveredDrop
+import com.somewhere.app.ui.theme.AppTheme
+import com.somewhere.app.ui.theme.LocalAppTheme
 
 /**
  * Floating overlay card shown on the camera preview.
@@ -55,6 +57,11 @@ fun DropOverlayCard(
     onTap: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    if (LocalAppTheme.current == AppTheme.FOLD) {
+        FoldDropOverlayCard(item = item, onTap = onTap, modifier = modifier)
+        return
+    }
+
     val ambient = com.somewhere.app.ui.theme.LocalAmbientColors.current
     val reduceMotion = rememberReduceMotionEnabled()
 

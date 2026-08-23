@@ -26,6 +26,8 @@ import androidx.camera.core.ImageCapture
 import androidx.camera.core.CameraControl
 import com.somewhere.app.ui.component.CameraBackground
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.runtime.*
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.focus.FocusRequester
@@ -33,6 +35,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.background
 import androidx.compose.ui.input.pointer.pointerInput
+import com.somewhere.app.ui.theme.AppTheme
+import com.somewhere.app.ui.theme.LocalAppTheme
+import com.somewhere.app.ui.theme.SomewhereColors
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
@@ -42,6 +47,7 @@ fun MainPagerScreen(
     onNotifications: () -> Unit,
     onFindSpot: (String) -> Unit
 ) {
+    val isFoldTheme = LocalAppTheme.current == AppTheme.FOLD
     val pages = remember {
         buildList {
             if (com.somewhere.app.PrototypeFeatures.SHOW_WAYFINDER) add(MainPage.WAYFINDER)
@@ -118,8 +124,24 @@ fun MainPagerScreen(
             modifier = Modifier.fillMaxSize(),
             userScrollEnabled = pagerState.currentPage != 0 && !isCreatingDrop
         ) { pageIndex ->
+            val pageOffset = (
+                (pagerState.currentPage - pageIndex) + pagerState.currentPageOffsetFraction
+            ).coerceIn(-1f, 1f)
+            val pageModifier = if (isFoldTheme) {
+                Modifier.graphicsLayer {
+                    rotationY = pageOffset * -12f
+                    cameraDistance = 28f * density
+                    transformOrigin = TransformOrigin(
+                        pivotFractionX = if (pageOffset < 0f) 0f else 1f,
+                        pivotFractionY = 0.5f
+                    )
+                    alpha = 1f - kotlin.math.abs(pageOffset) * 0.12f
+                }
+            } else {
+                Modifier
+            }
             when (pages[pageIndex]) {
-                MainPage.WAYFINDER -> Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                MainPage.WAYFINDER -> Box(modifier = pageModifier.fillMaxSize().background(if (isFoldTheme) SomewhereColors.Background else Color.Black)) {
                     TripScreen(
                         onBack = {
                             coroutineScope.launch {
@@ -128,7 +150,7 @@ fun MainPagerScreen(
                         }
                     )
                 }
-                MainPage.HOME -> Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                MainPage.HOME -> Box(modifier = pageModifier.fillMaxSize().background(if (isFoldTheme) SomewhereColors.Background else Color.Black)) {
                     HomeScreen(
                         onExplore = onExplore,
                         onSettings = onSettings,
@@ -142,7 +164,7 @@ fun MainPagerScreen(
                         }
                     )
                 }
-                MainPage.CREATE -> Box(modifier = Modifier.fillMaxSize().background(Color.Transparent)) {
+                MainPage.CREATE -> Box(modifier = pageModifier.fillMaxSize().background(Color.Transparent)) {
                     DropScreen(
                         imageCapture = imageCapture,
                         triggerCapture = triggerCapture,
@@ -168,7 +190,7 @@ fun MainPagerScreen(
                         onCreationStateChanged = { isCreatingDrop = it }
                     )
                 }
-                MainPage.PROFILE -> Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+                MainPage.PROFILE -> Box(modifier = pageModifier.fillMaxSize().background(if (isFoldTheme) SomewhereColors.Background else Color.Black)) {
                     ProfileScreen(
                         onExplore = onExplore,
                         onBack = {
