@@ -5,6 +5,8 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Looper
+import android.os.SystemClock
+import android.location.Location
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.android.gms.location.*
@@ -12,6 +14,8 @@ import com.somewhere.app.data.model.Drop
 import com.somewhere.app.data.repository.AiRepository
 import com.somewhere.app.data.repository.DropRepository
 import com.somewhere.app.util.LocationUtils
+import com.somewhere.app.util.LocationFixFilter
+import com.somewhere.app.util.LocationSample
 import com.somewhere.app.util.LocationUtils.HYSTERESIS_MARGIN
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.jan.supabase.gotrue.auth
@@ -21,6 +25,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.CancellationException
 import javax.inject.Inject
 
 /**
@@ -79,6 +85,8 @@ class DiscoveryViewModel @Inject constructor(
     private var realtimeStarted = false
     private var isArCoreTracking = false
     private var lastSensorUpdateNanos = 0L
+    private var lastGeospatialLocationAtMillis: Long? = null
+    private var lastArHeadingUpdateAtMillis = 0L
     private var nearbyFetchJob: kotlinx.coroutines.Job? = null
     private var lastFetchLat: Double? = null
     private var lastFetchLon: Double? = null
@@ -87,6 +95,12 @@ class DiscoveryViewModel @Inject constructor(
     private val unlockWritesInFlight = mutableSetOf<String>()
     private val unlockAttempts = mutableSetOf<String>()
     private var unlockedIdsLoaded = false
+    private val locationFilter = LocationFixFilter()
+    private var tracking = false
+    private var trackingGeneration = 0
+    private var currentLocationToken: com.google.android.gms.tasks.CancellationTokenSource? = null
+    private var locationTimeoutJob: kotlinx.coroutines.Job? = null
+    private val sessionUnlockedIds = mutableSetOf<String>()
 
     private val sensorListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
@@ -136,22 +150,46 @@ class DiscoveryViewModel @Inject constructor(
 
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
-            val location = result.lastLocation ?: return
-            _uiState.update { it.copy(
-                userLat = location.latitude,
-                userLon = location.longitude,
-                hasLocation = true,
-                locationAccuracyMeters = location.accuracy,
-                locationTimedOut = false
-            ) }
-            // Update bearings/distances immediately, but do not refetch the full
-            // backend dataset for every noisy GPS sample.
-            updateOverlayPositions()
-            fetchNearbyDrops(location.latitude, location.longitude)
+            result.locations.sortedBy { it.elapsedRealtimeNanos }.forEach(::acceptLocation)
         }
     }
 
+    private fun acceptLocation(location: Location) {
+        if (!tracking) return
+        // Prefer a well-localized ARCore/VPS pose while it is actively updating.
+        if (lastGeospatialLocationAtMillis?.let { SystemClock.elapsedRealtime() - it < 3_000L } == true) return
+        val accuracy = if (location.hasAccuracy() && location.accuracy > 0f) location.accuracy else 25f
+        val fix = locationFilter.update(
+            LocationSample(location.latitude, location.longitude, accuracy,
+                location.elapsedRealtimeNanos / 1_000_000L),
+            SystemClock.elapsedRealtime()
+        ) ?: return
+        _uiState.update { it.copy(
+            userLat = fix.latitude,
+            userLon = fix.longitude,
+            hasLocation = true,
+            locationAccuracyMeters = fix.accuracyMeters,
+            locationTimedOut = false
+        ) }
+        updateOverlayPositions()
+        fetchNearbyDrops(fix.latitude, fix.longitude)
+    }
+
     fun startTracking() {
+        if (tracking) return
+        tracking = true
+        val generation = ++trackingGeneration
+        locationFilter.reset()
+        lastFetchAtMillis = 0L
+
+        // If we already have a valid location from previous tracking, keep it and fetch immediately
+        val currentState = _uiState.value
+        if (currentState.hasLocation && currentState.userLat != 0.0) {
+            fetchNearbyDrops(currentState.userLat, currentState.userLon, force = true)
+        } else {
+            _uiState.update { it.copy(hasLocation = false, locationAccuracyMeters = null) }
+        }
+
         if (!unlockedIdsLoaded) {
             unlockedIdsLoaded = true
             viewModelScope.launch {
@@ -165,34 +203,38 @@ class DiscoveryViewModel @Inject constructor(
             sensorManager.registerListener(sensorListener, it, SensorManager.SENSOR_DELAY_UI)
         }
 
-        // Request location updates
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1500)
+        // Request location updates with maximum precision (FINE granularity, 0m min distance)
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000)
             .setMinUpdateIntervalMillis(500)
+            .setMinUpdateDistanceMeters(0f)
+            .setGranularity(Granularity.GRANULARITY_FINE)
+            .setWaitForAccurateLocation(true)
             .build()
 
         try {
-            // Fetch immediately so stationary emulators/devices don't hang waiting for an update
-            // Use getCurrentLocation instead of lastLocation to ensure high accuracy matching the DropScreen
+            // First check lastLocation for instant zero-latency positioning on startup
+            fusedLocationClient.lastLocation
+                .addOnSuccessListener { location ->
+                    if (location != null && generation == trackingGeneration && !_uiState.value.hasLocation) {
+                        acceptLocation(location)
+                    }
+                }
+
+            // High accuracy fresh location request
             val currentLocationRequest = CurrentLocationRequest.Builder()
                 .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
-                .setMaxUpdateAgeMillis(0)
+                .setGranularity(Granularity.GRANULARITY_FINE)
+                .setMaxUpdateAgeMillis(15_000)
                 .setDurationMillis(10_000)
                 .build()
+            currentLocationToken = com.google.android.gms.tasks.CancellationTokenSource()
             fusedLocationClient.getCurrentLocation(
                 currentLocationRequest,
-                com.google.android.gms.tasks.CancellationTokenSource().token
+                currentLocationToken!!.token
             )
                 .addOnSuccessListener { location ->
-                    if (location != null) {
-                        _uiState.update { it.copy(
-                            userLat = location.latitude,
-                            userLon = location.longitude,
-                            hasLocation = true,
-                            locationAccuracyMeters = location.accuracy,
-                            locationTimedOut = false
-                        ) }
-                        updateOverlayPositions()
-                        fetchNearbyDrops(location.latitude, location.longitude)
+                    if (location != null && generation == trackingGeneration) {
+                        acceptLocation(location)
                     }
                 }
             
@@ -203,7 +245,7 @@ class DiscoveryViewModel @Inject constructor(
             // Permission not granted — handled in UI layer
         }
 
-        viewModelScope.launch {
+        locationTimeoutJob = viewModelScope.launch {
             kotlinx.coroutines.delay(10_000)
             if (!_uiState.value.hasLocation) {
                 _uiState.update { it.copy(locationTimedOut = true) }
@@ -228,6 +270,16 @@ class DiscoveryViewModel @Inject constructor(
     }
 
     fun stopTracking() {
+        tracking = false
+        trackingGeneration++
+        currentLocationToken?.cancel()
+        currentLocationToken = null
+        locationTimeoutJob?.cancel()
+        nearbyFetchJob?.cancel()
+        isArCoreTracking = false
+        compassInitialized = false
+        lastGeospatialLocationAtMillis = null
+        _uiState.update { it.copy(isArCoreTracking = false) }
         sensorManager.unregisterListener(sensorListener)
         fusedLocationClient.removeLocationUpdates(locationCallback)
     }
@@ -356,13 +408,15 @@ class DiscoveryViewModel @Inject constructor(
     }
 
     private fun fetchNearbyDrops(lat: Double, lon: Double, force: Boolean = false) {
-        val now = System.currentTimeMillis()
+        val now = SystemClock.elapsedRealtime()
         val movedMeters = if (lastFetchLat != null && lastFetchLon != null) {
             LocationUtils.haversineDistance(lastFetchLat!!, lastFetchLon!!, lat, lon)
         } else {
             Float.MAX_VALUE
         }
-        if (!force && movedMeters < 25f && now - lastFetchAtMillis < 15_000L) return
+        if (!force && movedMeters < 15f &&
+            (now - lastFetchAtMillis < 8_000L || nearbyFetchJob?.isActive == true)
+        ) return
 
         lastFetchLat = lat
         lastFetchLon = lon
@@ -373,6 +427,7 @@ class DiscoveryViewModel @Inject constructor(
             val nearbyWithDistance = runCatching {
                 repository.getDropsNear(lat, lon)
             }.getOrElse { error ->
+                if (error is CancellationException) throw error
                 _uiState.update {
                     it.copy(
                         isLoadingDrops = false,
@@ -381,6 +436,7 @@ class DiscoveryViewModel @Inject constructor(
                 }
                 return@launch
             }
+            coroutineContext.ensureActive()
             val currentCategory = _uiState.value.selectedCategory
             
             val filtered = if (currentCategory != null) {
@@ -389,11 +445,17 @@ class DiscoveryViewModel @Inject constructor(
                 nearbyWithDistance
             }
 
-            val previousIds = _uiState.value.nearbyDrops.map { it.drop.id }.toSet()
-            val locationAccuracy = _uiState.value.locationAccuracyMeters
+            val currentState = _uiState.value
+            val previousIds = currentState.nearbyDrops.map { it.drop.id }.toSet()
+            val locationAccuracy = currentState.locationAccuracyMeters
+            val currentLat = if (currentState.hasLocation) currentState.userLat else lat
+            val currentLon = if (currentState.hasLocation) currentState.userLon else lon
 
-            val discovered = filtered.mapIndexed { index, (drop, distance) ->
-                val bearing = LocationUtils.bearing(lat, lon, drop.latitude, drop.longitude)
+            val discovered = filtered.mapIndexed { index, (drop, _) ->
+                val distance = LocationUtils.haversineDistance(
+                    currentLat, currentLon, drop.latitude, drop.longitude
+                )
+                val bearing = LocationUtils.bearing(currentLat, currentLon, drop.latitude, drop.longitude)
                 val angle = LocationUtils.angleDifference(currentHeading, bearing)
                 val isNew = drop.id !in discoveredIds
 
@@ -458,6 +520,7 @@ class DiscoveryViewModel @Inject constructor(
 
         _uiState.value = state.copy(
             nearbyDrops = updated, 
+            selectedDrop = state.selectedDrop?.let { selected -> updated.find { it.drop.id == selected.drop.id } ?: selected },
             heading = currentHeading
         )
         updated.forEach(::persistUnlock)
@@ -472,6 +535,7 @@ class DiscoveryViewModel @Inject constructor(
             .currentUserOrNull()?.id
         return (currentUserId != null && drop.authorId == currentUserId) ||
             drop.id in stickyUnlockedIds ||
+            drop.id in sessionUnlockedIds ||
             LocationUtils.isWithinUnlockRange(
                 distanceMeters,
                 currentAccuracyMeters,
@@ -479,10 +543,27 @@ class DiscoveryViewModel @Inject constructor(
             )
     }
 
+    /** A recognized visual map gives real spatial proximity without a GPS allowance. */
+    fun onVisualDropResolved(id: String, distanceMeters: Float) {
+        if (!tracking || !distanceMeters.isFinite() || distanceMeters < 0f ||
+            distanceMeters > LocationUtils.UNLOCK_RADIUS || id in sessionUnlockedIds) return
+        val item = _uiState.value.nearbyDrops.firstOrNull { it.drop.id == id } ?: return
+        if (item.drop.spatialAnchor?.canResolveAt(System.currentTimeMillis()) != true) return
+        sessionUnlockedIds += id
+        val unlocked = item.copy(isUnlocked = true)
+        _uiState.update { state -> state.copy(
+            nearbyDrops = state.nearbyDrops.map { if (it.drop.id == id) unlocked else it },
+            selectedDrop = state.selectedDrop?.let { if (it.drop.id == id) unlocked else it }
+        ) }
+        persistUnlock(unlocked)
+    }
+
     private fun persistUnlock(item: DiscoveredDrop, allowRetry: Boolean = false) {
         val currentUserId = com.somewhere.app.data.remote.SupabaseManager.client.auth
             .currentUserOrNull()?.id ?: return
         if (!item.isUnlocked || item.drop.authorId == currentUserId) return
+        // Preserve a genuine proximity unlock while persistence is pending/offline.
+        sessionUnlockedIds += item.drop.id
         if (item.drop.id in stickyUnlockedIds || item.drop.id in unlockWritesInFlight) return
         if (!allowRetry && item.drop.id in unlockAttempts) return
 
@@ -496,17 +577,52 @@ class DiscoveryViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Called by ARScene when ARCore provides a heading (from Geospatial or VIO).
-     * Updates the heading used for compass HUD and drop placement.
-     */
-    fun updateArCoreHeading(heading: Float) {
-        isArCoreTracking = true
-        currentHeading = heading
+    /** Called only after the AR scene's position/orientation quality gate is localized. */
+    fun updateArCorePose(latitude: Double, longitude: Double, accuracyMeters: Float, heading: Float?) {
+        if (!tracking || !latitude.isFinite() || latitude !in -90.0..90.0 ||
+            !longitude.isFinite() || longitude !in -180.0..180.0 ||
+            !accuracyMeters.isFinite() || accuracyMeters <= 0f || accuracyMeters > 15f
+        ) return
+
+        val now = SystemClock.elapsedRealtime()
+        if (heading != null && heading.isFinite()) {
+            if (now - lastArHeadingUpdateAtMillis >= 33L) {
+                lastArHeadingUpdateAtMillis = now
+                isArCoreTracking = true
+                currentHeading = (heading % 360f + 360f) % 360f
+                _uiState.update { it.copy(heading = currentHeading, isArCoreTracking = true) }
+                updateOverlayPositions()
+            }
+        } else if (isArCoreTracking) {
+            // Pointing straight up/down has no horizontal camera bearing.
+            isArCoreTracking = false
+            compassInitialized = false
+            _uiState.update { it.copy(isArCoreTracking = false) }
+        }
+
+        if (lastGeospatialLocationAtMillis?.let { now - it < 1_000L } == true) return
+        lastGeospatialLocationAtMillis = now
         _uiState.update { it.copy(
-            heading = heading,
-            isArCoreTracking = true
+            userLat = latitude,
+            userLon = longitude,
+            hasLocation = true,
+            locationAccuracyMeters = accuracyMeters,
+            locationTimedOut = false
         ) }
+        updateOverlayPositions()
+        // The repository refresh throttle also applies while standing still, so new
+        // Drops appear without restarting the camera or cancelling an in-flight fetch.
+        fetchNearbyDrops(latitude, longitude)
+    }
+
+    fun onArTrackingLost() {
+        if (!isArCoreTracking && lastGeospatialLocationAtMillis == null) return
+        isArCoreTracking = false
+        compassInitialized = false
+        lastGeospatialLocationAtMillis = null
+        lastArHeadingUpdateAtMillis = 0L
+        locationFilter.reset()
+        _uiState.update { it.copy(isArCoreTracking = false) }
     }
 
     override fun onCleared() {

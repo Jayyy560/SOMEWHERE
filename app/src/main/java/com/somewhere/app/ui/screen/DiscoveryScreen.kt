@@ -58,6 +58,7 @@ import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
 import com.somewhere.app.ui.component.PermissionGate
+import com.somewhere.app.ui.component.SpatialDataConsent
 import com.somewhere.app.ui.component.DropDetailSheet
 import com.somewhere.app.ui.component.EdgeIndicator
 import com.somewhere.app.ui.component.shimmerEffect
@@ -68,6 +69,12 @@ import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.ui.theme.AppTheme
 import com.somewhere.app.ui.theme.LocalAppTheme
 import com.somewhere.app.util.LocationUtils
+import com.somewhere.app.util.DropVisuals
+import com.somewhere.app.util.AnchorTarget
+import com.somewhere.app.util.ARUtils
+import com.somewhere.app.util.GeospatialAnchors
+import com.somewhere.app.util.GeospatialTrackingGate
+import com.somewhere.app.util.SpatialFrame
 import com.somewhere.app.util.rememberReduceMotionEnabled
 import com.somewhere.app.util.NetworkStatus
 import com.somewhere.app.util.rememberNetworkStatus
@@ -164,7 +171,6 @@ fun DiscoveryScreen(
                     Lifecycle.Event.ON_START -> viewModel.startTracking()
                     Lifecycle.Event.ON_STOP -> {
                         viewModel.stopTracking()
-                        com.somewhere.app.util.ARUtils.resetCalibration()
                     }
                     else -> Unit
                 }
@@ -172,7 +178,7 @@ fun DiscoveryScreen(
             lifecycleOwner.lifecycle.addObserver(observer)
             onDispose { 
                 lifecycleOwner.lifecycle.removeObserver(observer)
-                com.somewhere.app.util.ARUtils.resetCalibration()
+                viewModel.stopTracking()
             }
         }
 
@@ -237,24 +243,9 @@ fun DiscoveryScreen(
                     }
                     when (availability) {
                         com.google.ar.core.ArCoreApk.Availability.SUPPORTED_INSTALLED -> {
-                            var session: com.google.ar.core.Session? = null
-                            try {
-                                session = com.google.ar.core.Session(context)
-                                // Basic ARCore support does not imply Geospatial support.
-                                // Configuring an unsupported device throws UnsupportedConfigurationException.
-                                arCoreSupported = session.isGeospatialModeSupported(
-                                    com.google.ar.core.Config.GeospatialMode.ENABLED
-                                )
-                            } catch (e: Exception) {
-                                android.util.Log.w(
-                                    "DiscoveryScreen",
-                                    "ARCore preflight failed; using CameraX",
-                                    e
-                                )
-                                arCoreSupported = false
-                            } finally {
-                                runCatching { session?.close() }
-                            }
+                            // Check Geospatial support on the actual camera session. Opening
+                            // a second session here can disrupt the view that is resuming.
+                            arCoreSupported = true
                         }
                         com.google.ar.core.ArCoreApk.Availability.SUPPORTED_NOT_INSTALLED,
                         com.google.ar.core.ArCoreApk.Availability.SUPPORTED_APK_TOO_OLD -> {
@@ -267,6 +258,8 @@ fun DiscoveryScreen(
                             arCoreSupported = false
                         }
                     }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     android.util.Log.w(
                         "DiscoveryScreen",
@@ -277,9 +270,8 @@ fun DiscoveryScreen(
                 }
             }
 
-            var viewMatrix by remember { mutableStateOf<FloatArray?>(null) }
-            var projMatrix by remember { mutableStateOf<FloatArray?>(null) }
-            var cameraPos by remember { mutableStateOf(floatArrayOf(0f, 0f, 0f)) }
+            var arFrame by remember { mutableStateOf<SpatialFrame?>(null) }
+            var positioningMessage by remember { mutableStateOf<String?>(null) }
             
             val configuration = LocalConfiguration.current
             val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }.toInt()
@@ -287,10 +279,42 @@ fun DiscoveryScreen(
 
             if (!showListView) {
                 if (arCoreSupported == true) {
-                    var lastFrameUpdate = 0L
+                    val anchorManager = remember { GeospatialAnchors() }
+                    val trackingGate = remember { GeospatialTrackingGate() }
+                    DisposableEffect(lifecycleOwner, anchorManager) {
+                        val observer = LifecycleEventObserver { _, event ->
+                            if (event == Lifecycle.Event.ON_PAUSE) {
+                                anchorManager.clear()
+                                trackingGate.reset()
+                                arFrame = null
+                                viewModel.onArTrackingLost()
+                            }
+                        }
+                        lifecycleOwner.lifecycle.addObserver(observer)
+                        onDispose {
+                            lifecycleOwner.lifecycle.removeObserver(observer)
+                            anchorManager.clear()
+                            arFrame = null
+                            viewModel.onArTrackingLost()
+                        }
+                    }
+                    SpatialDataConsent(onDecline = { arCoreSupported = false }, content = {
                     AndroidView(
                         modifier = Modifier.fillMaxSize(),
+                        onRelease = { released ->
+                            (released as? ARSceneView)?.let { scene ->
+                                scene.onSessionUpdated = null
+                                anchorManager.clear()
+                                // Release the camera before CameraX starts its fallback preview.
+                                runCatching { scene.session?.pause() }
+                                scene.destroy()
+                            }
+                        },
                         factory = { ctx ->
+                            var lastFrameUpdate = 0L
+                            var lastFrameAt = 0L
+                            var lastLocalizedAt = android.os.SystemClock.elapsedRealtime()
+                            var lastResolvedAt = lastLocalizedAt
                             try {
                                 ARSceneView(ctx).apply {
                                     planeRenderer.isVisible = false
@@ -300,9 +324,12 @@ fun DiscoveryScreen(
                                             "AR session failed; switching to CameraX",
                                             exception
                                         )
+                                        arFrame = null
+                                        viewModel.onArTrackingLost()
                                         arCoreSupported = false
                                     }
                                     configureSession { session, config ->
+                                        config.cloudAnchorMode = com.google.ar.core.Config.CloudAnchorMode.ENABLED
                                         if (
                                             session.isGeospatialModeSupported(
                                                 com.google.ar.core.Config.GeospatialMode.ENABLED
@@ -311,57 +338,89 @@ fun DiscoveryScreen(
                                             config.geospatialMode =
                                                 com.google.ar.core.Config.GeospatialMode.ENABLED
                                         } else {
-                                            android.util.Log.i(
-                                                "DiscoveryScreen",
-                                                "Geospatial mode unavailable; switching to CameraX"
-                                            )
-                                            arCoreSupported = false
+                                            config.geospatialMode =
+                                                com.google.ar.core.Config.GeospatialMode.DISABLED
                                         }
                                     }
                                     onSessionUpdated = { session, frame ->
-                                    val cameraPose = frame.camera.pose
-                                    
-                                    val earth = session.earth
-                                    val heading: Float
-                                    if (earth?.trackingState == com.google.ar.core.TrackingState.TRACKING) {
-                                        heading = earth.cameraGeospatialPose.heading.toFloat()
-                                        viewModel.updateArCoreHeading(heading)
-                                    } else {
-                                        heading = viewModel.currentHeading
-                                    }
-                                    com.somewhere.app.util.ARUtils.calibrateNorth(cameraPose, heading)
-
-                                    val state = viewModel.uiState.value
-                                    val currentVisibleDrops = state.nearbyDrops.filter { it.drop.id !in hiddenDropIds }
-                                    
-                                    if (state.hasLocation && currentVisibleDrops.isNotEmpty()) {
-                                        val drops = currentVisibleDrops.mapIndexed { index, item ->
-                                            Pair(item.drop.id, Pair(item.drop.latitude, item.drop.longitude))
+                                        val now = android.os.SystemClock.elapsedRealtime()
+                                        if (lastFrameAt == 0L || now - lastFrameAt > 2_000L) {
+                                            trackingGate.reset()
+                                            lastLocalizedAt = now
+                                            lastResolvedAt = now
                                         }
-                                        com.somewhere.app.util.ARUtils.recomputeAllPositions(
-                                            session = session,
-                                            cameraPose = cameraPose,
-                                            userLat = state.userLat,
-                                            userLon = state.userLon,
-                                            drops = drops
-                                        )
-                                    }
+                                        lastFrameAt = now
+                                        val earth = session.earth?.takeIf {
+                                            it.earthState == com.google.ar.core.Earth.EarthState.ENABLED
+                                        }
+                                        val cameraTracking = frame.camera.trackingState == com.google.ar.core.TrackingState.TRACKING
+                                        if (cameraTracking) {
+                                            lastLocalizedAt = now
+                                            val tracking = earth?.trackingState == com.google.ar.core.TrackingState.TRACKING
+                                            val pose = if (tracking) earth?.cameraGeospatialPose else null
+                                            val localized = trackingGate.update(
+                                                tracking = tracking,
+                                                horizontalAccuracyMeters = pose?.horizontalAccuracy ?: Double.POSITIVE_INFINITY,
+                                                yawAccuracyDegrees = pose?.orientationYawAccuracy ?: Double.POSITIVE_INFINITY,
+                                                nowMillis = now
+                                            )
+                                            if (localized && earth != null && pose != null) {
+                                                viewModel.updateArCorePose(
+                                                    latitude = pose.latitude,
+                                                    longitude = pose.longitude,
+                                                    accuracyMeters = pose.horizontalAccuracy.toFloat(),
+                                                    heading = ARUtils.headingFromQuaternion(pose.eastUpSouthQuaternion)
+                                                )
+                                            } else viewModel.onArTrackingLost()
+                                            val targets = viewModel.uiState.value.nearbyDrops
+                                                .filter { it.drop.id !in hiddenDropIds }
+                                                .map { AnchorTarget(it.drop.id, it.drop.latitude, it.drop.longitude, it.drop.spatialAnchor) }
+                                            anchorManager.update(session, earth, localized, targets)
+                                            val positions = anchorManager.positions()
+                                            if (positions.isNotEmpty() || targets.isEmpty()) lastResolvedAt = now
+                                            positioningMessage = if (targets.isNotEmpty() && positions.isEmpty()) {
+                                                when {
+                                                    anchorManager.cloudError == com.google.ar.core.Anchor.CloudAnchorState.ERROR_NOT_AUTHORIZED ->
+                                                        "Visual positioning authorization failed. Check the app's Google Cloud setup."
+                                                    targets.any { it.spatialAnchor?.canResolveAt(System.currentTimeMillis()) == true } ->
+                                                        "Scan nearby surfaces to recognize visual Drops…"
+                                                    targets.any { it.spatialAnchor != null } ->
+                                                        "Visual anchor expired. Use the map to find this Drop."
+                                                    else -> "Finding outdoor positioning…"
+                                                }
+                                            } else null
+                                            if (now - lastResolvedAt >= 60_000L) arCoreSupported = false
 
-                                    // Extract matrices for 2.5D projection
-                                    // Throttle Compose state updates to ~30fps to avoid 60x/sec recomposition
-                                    val now = System.nanoTime()
-                                    if (now - lastFrameUpdate > 33_000_000L) { // ~30fps
-                                        lastFrameUpdate = now
-                                        val vMatrix = FloatArray(16)
-                                        frame.camera.getViewMatrix(vMatrix, 0)
-                                        viewMatrix = vMatrix.copyOf()
-                                        
-                                        val pMatrix = FloatArray(16)
-                                        frame.camera.getProjectionMatrix(pMatrix, 0, 0.1f, 100f)
-                                        projMatrix = pMatrix.copyOf()
-                                        
-                                        cameraPos = cameraPose.translation.copyOf()
-                                    }
+                                            if (now - lastFrameUpdate >= 33L && width > 0 && height > 0) {
+                                                lastFrameUpdate = now
+                                                val viewMatrix = FloatArray(16)
+                                                val projectionMatrix = FloatArray(16)
+                                                frame.camera.getViewMatrix(viewMatrix, 0)
+                                                frame.camera.getProjectionMatrix(
+                                                    projectionMatrix, 0, 0.1f,
+                                                    LocationUtils.DISCOVERY_RADIUS + LocationUtils.HYSTERESIS_MARGIN + 50f
+                                                )
+                                                arFrame = SpatialFrame(
+                                                    viewMatrix, projectionMatrix, frame.camera.pose.translation,
+                                                    positions, width, height
+                                                )
+                                                val cameraPosition = frame.camera.pose.translation
+                                                anchorManager.visualPositions().forEach { (id, point) ->
+                                                    val distance = kotlin.math.sqrt(point.indices.sumOf { i ->
+                                                        val delta = point[i] - cameraPosition[i]
+                                                        (delta * delta).toDouble()
+                                                    }).toFloat()
+                                                    viewModel.onVisualDropResolved(id, distance)
+                                                }
+                                            }
+                                        } else {
+                                            trackingGate.reset()
+                                            arFrame = null
+                                            lastResolvedAt = now
+                                            positioningMessage = "Look around to find your surroundings…"
+                                            viewModel.onArTrackingLost()
+                                            if (now - lastLocalizedAt >= 15_000L) arCoreSupported = false
+                                        }
                                     }
                                 }
                             } catch (e: Exception) {
@@ -375,44 +434,33 @@ fun DiscoveryScreen(
                             }
                         }
                     )
+                    })
                     
-                    // 2.5D Overlay layer drawn ON TOP of the ARSceneView
-                    val currentViewMatrix = viewMatrix
-                    val currentProjMatrix = projMatrix
-                    if (currentViewMatrix != null && currentProjMatrix != null) {
+                    val spatialFrame = arFrame
+                    if (spatialFrame != null) {
+                        val currentViewMatrix = spatialFrame.viewMatrix
+                        val currentProjMatrix = spatialFrame.projectionMatrix
+                        val cameraPos = spatialFrame.cameraPosition
                         val halfCardWidthPx = with(density) { 80.dp.toPx().toInt() }
                         val halfCardHeightPx = with(density) { 50.dp.toPx().toInt() }
-                        val minHorizontalSpacingPx = with(density) { 88.dp.toPx() }
-                        val minVerticalSpacingPx = with(density) { 56.dp.toPx() }
-                        val occupiedScreenPositions = mutableListOf<Pair<Float, Float>>()
                         var renderedOverlayCount = 0
-                        val maxReadableArOverlays = 6
+                        val maxReadableArOverlays = com.somewhere.app.util.LocationUtils.MAX_VISIBLE
 
-                        visibleDrops.forEach { item ->
+                        // Sort farther drops first so closer drops draw on top naturally
+                        visibleDrops.sortedByDescending { it.distanceMeters }.forEach { item ->
                             if (renderedOverlayCount >= maxReadableArOverlays) {
                                 return@forEach
                             }
                             if (item.drop.id in hiddenDropIds) return@forEach
 
-                            val worldPos = com.somewhere.app.util.ARUtils.getWorldPosition(item.drop.id)
+                            val worldPos = spatialFrame.positions[item.drop.id]
 
                             if (worldPos != null) {
                                 val screenPos = com.somewhere.app.util.ARUtils.projectToScreen(
-                                    worldPos, currentViewMatrix, currentProjMatrix, screenWidthPx, screenHeightPx
+                                    worldPos, currentViewMatrix, currentProjMatrix, spatialFrame.widthPx, spatialFrame.heightPx
                                 )
 
                                 if (screenPos != null) {
-                                    val collidesWithVisibleCard =
-                                        occupiedScreenPositions.any { occupied ->
-                                            kotlin.math.abs(occupied.first - screenPos.first) <
-                                                minHorizontalSpacingPx &&
-                                                kotlin.math.abs(occupied.second - screenPos.second) <
-                                                minVerticalSpacingPx
-                                        }
-                                    if (collidesWithVisibleCard) {
-                                        return@forEach
-                                    }
-                                    occupiedScreenPositions += screenPos
                                     renderedOverlayCount++
 
                                     val dx = cameraPos[0] - worldPos[0]
@@ -422,19 +470,19 @@ fun DiscoveryScreen(
 
                                     // Perspective scale from projection (closer = bigger, far = smaller)
                                     // Wider range than before so depth difference is clearly visible
-                                    val perspectiveScale = (3.5f / distance.coerceAtLeast(1f)).coerceIn(0.35f, 1.3f)
+                                    val perspectiveScale = DropVisuals.perspectiveScale(distance)
 
                                     // Atmospheric fade — far drops get slightly transparent (depth cue)
                                     val distanceAlpha = (1f - (distance - 5f) / 50f).coerceIn(0.4f, 1f)
 
                                     // Ground shadow projected below the card for spatial grounding
                                     val shadowScreenPos = com.somewhere.app.util.ARUtils.projectToScreen(
-                                        floatArrayOf(worldPos[0], worldPos[1] - 0.8f, worldPos[2]),
-                                        currentViewMatrix, currentProjMatrix, screenWidthPx, screenHeightPx
+                                        floatArrayOf(worldPos[0], worldPos[1] - GeospatialAnchors.LABEL_HEIGHT_METERS.toFloat(), worldPos[2]),
+                                        currentViewMatrix, currentProjMatrix, spatialFrame.widthPx, spatialFrame.heightPx
                                     )
 
                                     // Draw ground shadow first (behind the card)
-                                    if (shadowScreenPos != null) {
+                                    if (shadowScreenPos != null && item.drop.spatialAnchor == null) {
                                         val shadowScale = perspectiveScale * 0.6f
                                         Box(
                                             modifier = Modifier
@@ -481,7 +529,7 @@ fun DiscoveryScreen(
                                             PingPulse(modifier = Modifier.align(Alignment.Center))
                                         }
                                         DropOverlayCard(
-                                            item = item,
+                                            item = if (item.drop.spatialAnchor != null) item.copy(distanceMeters = distance) else item,
                                             onTap = {
                                                 if (item.isUnlocked) viewModel.selectDrop(item)
                                             }
@@ -492,6 +540,16 @@ fun DiscoveryScreen(
                         }
                     }
 
+                    positioningMessage?.let { message ->
+                        Text(
+                            message,
+                            color = SomewhereColors.TextPrimary,
+                            modifier = Modifier.align(Alignment.BottomCenter)
+                                .padding(bottom = 150.dp)
+                                .background(SomewhereColors.Overlay, RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                        )
+                    }
                 } else if (arCoreSupported == null) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = SomewhereColors.Accent)
@@ -499,20 +557,24 @@ fun DiscoveryScreen(
                 } else if (arCoreSupported == false) {
                     // Fallback to CameraX
                     key(fallbackCameraRetryKey) {
+                        val binding = remember { FallbackCameraBinding() }
                         AndroidView(
+                            onRelease = { binding.release() },
                             factory = { ctx ->
                                 val previewView = androidx.camera.view.PreviewView(ctx).apply {
                                     scaleType = androidx.camera.view.PreviewView.ScaleType.FILL_CENTER
                                 }
 
                                 val cameraProviderFuture = androidx.camera.lifecycle.ProcessCameraProvider.getInstance(ctx)
-                                cameraProviderFuture.addListener({
+                                cameraProviderFuture.addListener(listener@{
+                                    if (binding.released) return@listener
                                     try {
                                         val cameraProvider = cameraProviderFuture.get()
                                         val preview = androidx.camera.core.Preview.Builder().build().also {
                                             it.surfaceProvider = previewView.surfaceProvider
                                         }
-                                        cameraProvider.unbindAll()
+                                        binding.provider = cameraProvider
+                                        binding.preview = preview
                                         cameraProvider.bindToLifecycle(
                                             lifecycleOwner,
                                             androidx.camera.core.CameraSelector.DEFAULT_BACK_CAMERA,
@@ -560,6 +622,13 @@ fun DiscoveryScreen(
                     }
                     
                     // Compass fallback overlay
+                    if (visibleDrops.any { it.drop.spatialAnchor?.canResolveAt(System.currentTimeMillis()) == true }) {
+                        TextButton(
+                            onClick = { arAvailabilityCheck++ },
+                            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 150.dp)
+                                .background(SomewhereColors.Overlay, RoundedCornerShape(12.dp))
+                        ) { Text("Scan for visual Drops") }
+                    }
                     val dropsInView = visibleDrops
                         .filter { kotlin.math.abs(it.angleDegrees) <= 32f }
                         .sortedWith(
@@ -1286,6 +1355,21 @@ private fun RadarEmptyState(
             ),
             color = SomewhereColors.TextSecondary
         )
+    }
+}
+
+/** Unbind only this view's use case, including when its provider completes after disposal. */
+private class FallbackCameraBinding {
+    var released = false
+        private set
+    var provider: ProcessCameraProvider? = null
+    var preview: Preview? = null
+
+    fun release() {
+        released = true
+        preview?.let { useCase -> runCatching { provider?.unbind(useCase) } }
+        preview = null
+        provider = null
     }
 }
 

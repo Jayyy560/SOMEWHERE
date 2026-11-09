@@ -28,6 +28,8 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
+        // Persistent Cloud Anchors use Android package/signing-certificate authorization.
+        buildConfigField("int", "CLOUD_ANCHOR_TTL_DAYS", "365")
 
         buildConfigField(
             "String",
@@ -122,6 +124,7 @@ dependencies {
 
     // Location
     implementation("com.google.android.gms:play-services-location:21.3.0")
+    implementation("com.google.android.gms:play-services-auth:21.3.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
 
     // Room

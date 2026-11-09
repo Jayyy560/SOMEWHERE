@@ -31,7 +31,8 @@ data class Drop(
     val carriedByUserId: String? = null,
     val placementAccuracyMeters: Float? = null,
     val placementLocationTimestamp: Long? = null,
-    val placementLocationProvider: String? = null
+    val placementLocationProvider: String? = null,
+    val spatialAnchor: SpatialAnchor? = null
 ) {
     val imageUrl: String
         get() = if (imagePath.startsWith("/")) {

@@ -76,7 +76,7 @@ internal fun FoldDropOverlayCard(
         ),
         label = "foldDropOpen"
     )
-    val primaryScale = if (item.isPrimary) 1f else 0.86f
+    val primaryScale = if (item.isPrimary) 1f else 0.92f
 
     Box(
         modifier = modifier

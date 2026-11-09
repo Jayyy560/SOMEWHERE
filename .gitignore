@@ -16,3 +16,7 @@ local.properties
 .qodo
 build.log
 **/build/
+.kotlin/
+tmp/
+output/
+property_doc_rebuild_work/

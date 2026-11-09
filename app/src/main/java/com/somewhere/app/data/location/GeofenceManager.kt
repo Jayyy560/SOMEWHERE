@@ -1,68 +1,53 @@
 package com.somewhere.app.data.location
 
-import android.annotation.SuppressLint
+import android.Manifest
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import com.google.android.gms.location.Geofence
-import com.google.android.gms.location.GeofencingClient
-import com.google.android.gms.location.GeofencingRequest
-import com.google.android.gms.location.LocationServices
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.core.content.ContextCompat
+import com.google.android.gms.location.*
 import com.somewhere.app.data.remote.NearbyDrop
+import kotlinx.coroutines.*
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
+/** A rolling window leaves room under Android's per-app limit and replaces old registrations in order. */
 class GeofenceManager(private val context: Context) {
-    private val geofencingClient: GeofencingClient = LocationServices.getGeofencingClient(context)
-
-    private val geofencePendingIntent: PendingIntent by lazy {
-        val intent = Intent(context, GeofenceBroadcastReceiver::class.java)
-        // FLAG_MUTABLE is required for Android 12+ if the intent is modified, but FLAG_UPDATE_CURRENT is usually sufficient
-        PendingIntent.getBroadcast(
-            context,
-            0,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
-        )
+    private val client = LocationServices.getGeofencingClient(context)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private var job: Job? = null
+    private val operations = Mutex()
+    private val pendingIntent by lazy {
+        PendingIntent.getBroadcast(context, 0, Intent(context, GeofenceBroadcastReceiver::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
     }
-
-    /**
-     * Registers a geofence around each drop.
-     */
-    @SuppressLint("MissingPermission")
-    fun registerGeofences(drops: List<NearbyDrop>) {
-        if (drops.isEmpty()) return
-
-        val geofences = drops.map { drop ->
-            Geofence.Builder()
-                .setRequestId(drop.id) // unique ID for the geofence
-                .setCircularRegion(
-                    drop.latitude,
-                    drop.longitude,
-                    2000f // 2km radius to trigger slightly early on the highway
-                )
-                .setExpirationDuration(Geofence.NEVER_EXPIRE)
-                .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER)
-                .build()
-        }
-
-        val request = GeofencingRequest.Builder()
-            .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)
-            .addGeofences(geofences)
-            .build()
-
-        geofencingClient.addGeofences(request, geofencePendingIntent).run {
-            addOnSuccessListener {
-                // Geofences added
-            }
-            addOnFailureListener {
-                it.printStackTrace()
-            }
+    @android.annotation.SuppressLint("MissingPermission")
+    fun registerGeofences(drops: List<NearbyDrop>, mode: TravelMode, onError: (String) -> Unit = {}) {
+        job?.cancel()
+        job = scope.launch {
+            try { operations.withLock {
+                withContext(NonCancellable) { client.removeGeofences(pendingIntent).await() }
+                ensureActive()
+                if (drops.isEmpty()) return@launch
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return@launch
+                if (Build.VERSION.SDK_INT >= 29 && ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                    // Foreground location tracking still supplies the same accuracy-checked alerts.
+                    return@launch
+                }
+                val radius = when (mode) { TravelMode.WALKING -> 150f; TravelMode.CYCLING -> 350f; TravelMode.DRIVING -> 1000f }
+                val fences = drops.distinctBy { it.id }.take(90).map {
+                    Geofence.Builder().setRequestId(it.id).setCircularRegion(it.latitude,it.longitude,radius)
+                        .setExpirationDuration(6 * 60 * 60 * 1000L).setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER).build()
+                }
+                withContext(NonCancellable) { client.addGeofences(GeofencingRequest.Builder().setInitialTrigger(0).addGeofences(fences).build(),pendingIntent).await() }
+            } } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { onError("Background proximity alerts are unavailable. Live trip tracking is still active.") }
         }
     }
-
-    /**
-     * Removes all active trip geofences.
-     */
     fun clearGeofences() {
-        geofencingClient.removeGeofences(geofencePendingIntent)
+        job?.cancel()
+        job = scope.launch { try { operations.withLock { withContext(NonCancellable) { client.removeGeofences(pendingIntent).await() } } } catch (e: CancellationException) { throw e } catch (_: Exception) {} }
     }
 }

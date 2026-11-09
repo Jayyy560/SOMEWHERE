@@ -102,8 +102,8 @@ fun DropOverlayCard(
     }
 
     // Primary vs secondary sizing
-    val cardScale = if (item.isPrimary) 1f else 0.85f
-    val baseAlpha = if (item.isPrimary) 1f else 0.75f
+    val cardScale = if (item.isPrimary) 1f else 0.92f
+    val baseAlpha = if (item.isPrimary) 1f else 0.82f
 
     // Single shared infinite transition for all card animations
     val infiniteTransition = rememberInfiniteTransition(label = "cardAnim")

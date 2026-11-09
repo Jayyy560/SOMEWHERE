@@ -25,19 +25,6 @@ class TripForegroundService : Service() {
     private val CHANNEL_ID = "TripModeActiveChannel"
     private val NOTIFICATION_ID = 1001
 
-    private val locationClient by lazy {
-        LocationServices.getFusedLocationProviderClient(this)
-    }
-
-    private val locationCallback = object : LocationCallback() {
-        override fun onLocationResult(result: LocationResult) {
-            result.lastLocation?.let { loc ->
-                val latLng = LatLng(loc.latitude, loc.longitude)
-                TripManager.updateUserLocation(latLng)
-            }
-        }
-    }
-
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
@@ -52,19 +39,13 @@ class TripForegroundService : Service() {
             return START_NOT_STICKY
         }
 
+        if (!TripManager.uiState.value.isNavigating) { stopSelf(); return START_NOT_STICKY }
         // Start Foreground Notification
         startForeground(NOTIFICATION_ID, createNotification())
 
-        // Start requesting high accuracy location
-        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 3000).build()
-        locationClient.requestLocationUpdates(request, locationCallback, android.os.Looper.getMainLooper())
-
-        return START_STICKY
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        locationClient.removeLocationUpdates(locationCallback)
+        TripManager.ensureNavigationTracking(this)
+        // A killed process exposes a resumable itinerary; it must not restart an empty trip.
+        return START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

@@ -112,7 +112,7 @@ fun MainPagerScreen(
     ) {
         // Z-Index 0: The Camera (only active when on or near the DropScreen to save battery and reduce lag)
         CameraBackground(
-            isActive = pagerState.currentPage == createPage || pagerState.targetPage == createPage,
+            isActive = !isCreatingDrop && (pagerState.currentPage == createPage || pagerState.targetPage == createPage),
             onImageCaptureCreated = { imageCapture = it },
             onCameraControlCreated = { cameraControl = it },
             onCameraError = { cameraError = it },
@@ -143,6 +143,7 @@ fun MainPagerScreen(
             when (pages[pageIndex]) {
                 MainPage.WAYFINDER -> Box(modifier = pageModifier.fillMaxSize().background(if (isFoldTheme) SomewhereColors.Background else Color.Black)) {
                     TripScreen(
+                        isActive = pagerState.currentPage == pageIndex,
                         onBack = {
                             coroutineScope.launch {
                                 pagerState.animateScrollToPage(homePage)

@@ -43,3 +43,9 @@
 # Kotlin Coroutines
 -keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
 -keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
+
+# ARCore keyless authorization must retain the Google Play services auth classes.
+-keep class com.google.android.gms.common.** { *; }
+-keep class com.google.android.gms.location.** { *; }
+-keep class com.google.android.gms.auth.** { *; }
+-keep class com.google.android.gms.tasks.** { *; }

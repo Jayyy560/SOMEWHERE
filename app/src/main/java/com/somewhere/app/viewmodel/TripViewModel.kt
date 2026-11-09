@@ -7,6 +7,9 @@ import com.google.android.gms.maps.model.LatLng
 import com.somewhere.app.data.location.TripForegroundService
 import com.somewhere.app.data.location.TripManager
 import com.somewhere.app.data.remote.NearbyDrop
+import com.somewhere.app.data.location.*
+import com.somewhere.app.data.remote.SupabaseManager
+import io.github.jan.supabase.gotrue.auth
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -45,7 +48,22 @@ data class TripUiState(
     
     // Recalculation
     val isRecalculating: Boolean = false,
-    val offRouteCounter: Int = 0
+    val offRouteCounter: Int = 0,
+    val options: TripOptions = TripOptions(),
+    val recommendations: Map<String, RankedTripDrop> = emptyMap(),
+    val itineraryStops: List<NearbyDrop> = emptyList(),
+    val routeProgressMeters: Double = 0.0,
+    val locationAccuracyMeters: Float? = null,
+    val visitedDropIds: Set<String> = emptySet(),
+    val savedTrips: List<SavedTrip> = emptyList(),
+    val communityTrails: List<CuratedTrail> = emptyList(),
+    val resumableTripId: String? = null,
+    val currentUserId: String? = null,
+    val isLoadingTrails: Boolean = false,
+    val isPublishingTrail: Boolean = false,
+    val isSavingPhotos: Boolean = false,
+    val planningMessage: String = "",
+    val notice: String? = null
 )
 
 enum class TripPhase {
@@ -59,17 +77,7 @@ class TripViewModel(application: Application) : AndroidViewModel(application) {
     init {
         TripManager.initialize(application.applicationContext)
         viewModelScope.launch {
-            TripManager.uiState
-                .map { it.isNavigating }
-                .distinctUntilChanged()
-                .collect { navigating ->
-                    val intent = Intent(getApplication(), TripForegroundService::class.java)
-                    if (navigating) {
-                        getApplication<Application>().startForegroundService(intent)
-                    } else {
-                        getApplication<Application>().stopService(intent)
-                    }
-                }
+            SupabaseManager.client.auth.sessionStatus.collect { TripManager.refreshAccount() }
         }
     }
 
@@ -104,6 +112,19 @@ class TripViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissApproachingDrop() = TripManager.dismissApproachingDrop()
     
-    // Fallback UI updates just in case (the Service handles live location, but we can keep this for Compose)
-    fun updateUserLocation(latLng: LatLng) = TripManager.updateUserLocation(latLng)
+    fun setListNavigation(enabled: Boolean) = TripManager.setListNavigation(enabled)
+    fun updateOptions(options: TripOptions) = TripManager.updateOptions(options)
+    fun addStop(drop: NearbyDrop) = TripManager.addStop(drop)
+    fun removeStop(dropId: String) = TripManager.removeStop(dropId)
+    fun recordVisit(dropId: String) = TripManager.recordVisit(dropId)
+    fun saveTrip(title: String) = TripManager.saveTrip(title)
+    fun deleteSavedTrip(id: String) = TripManager.deleteSavedTrip(id)
+    fun addJournalPhotos(id: String, uris: List<android.net.Uri>) = TripManager.addJournalPhotos(id, uris)
+    fun removeJournalPhoto(id: String, path: String) = TripManager.removeJournalPhoto(id, path)
+    fun updateJournal(id: String, note: String, stopId: String? = null) = TripManager.updateJournal(id, note, stopId)
+    fun openSavedTrip(trip: SavedTrip) = TripManager.openSavedTrip(trip)
+    fun loadTrails() = TripManager.loadTrails()
+    fun openTrail(trail: CuratedTrail) = TripManager.openTrail(trail)
+    fun publishTrail(title: String, description: String) = TripManager.publishTrail(title, description)
+    fun setStepFreeAccess(drop: NearbyDrop, value: Boolean?) = TripManager.setStepFreeAccess(drop, value)
 }

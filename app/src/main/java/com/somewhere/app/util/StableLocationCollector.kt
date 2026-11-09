@@ -31,6 +31,7 @@ data class StableLocationFix(
 @SuppressLint("MissingPermission")
 suspend fun collectStableLocation(
     context: Context,
+    maxAccuracyMeters: Float = 100f,
     onProgress: (StableLocationFix) -> Unit = {}
 ): StableLocationFix? = suspendCancellableCoroutine { continuation ->
     val handler = Handler(Looper.getMainLooper())
@@ -55,14 +56,16 @@ suspend fun collectStableLocation(
 
     callback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
+            if (completed || !continuation.isActive) return
             result.locations.forEach { location ->
+                if (completed || !continuation.isActive) return@forEach
                 val ageMillis = (
                     SystemClock.elapsedRealtimeNanos() - location.elapsedRealtimeNanos
                 ) / 1_000_000L
                 val isFresh = ageMillis in 0..10_000
                 val hasUsableAccuracy = location.hasAccuracy() &&
                     location.accuracy.isFinite() &&
-                    location.accuracy in 1f..100f
+                    location.accuracy in 1f..maxAccuracyMeters
                 if (!isFresh || !hasUsableAccuracy) return@forEach
 
                 samples += location

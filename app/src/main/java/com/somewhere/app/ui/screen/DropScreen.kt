@@ -38,6 +38,8 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.mapSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -65,6 +67,8 @@ import com.somewhere.app.ui.component.SomewhereButton
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.util.LocationUtils
 import com.somewhere.app.util.StableLocationFix
+import com.somewhere.app.util.PlacementPin
+import com.somewhere.app.util.PlacementSelection
 import com.somewhere.app.util.collectStableLocation
 import com.somewhere.app.util.rememberReduceMotionEnabled
 import com.somewhere.app.viewmodel.DropViewModel
@@ -79,9 +83,44 @@ import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+import com.google.android.gms.maps.model.CameraPosition
+import com.google.android.gms.maps.model.LatLng
+import com.google.maps.android.compose.GoogleMap
+import com.google.maps.android.compose.MapProperties
+import com.google.maps.android.compose.MapType
+import com.google.maps.android.compose.Marker
+import com.google.maps.android.compose.MarkerState
+import com.google.maps.android.compose.rememberCameraPositionState
 
 private const val MAX_AUDIO_RECORDING_MS = 20_000L
 private const val MIN_AUDIO_RECORDING_MS = 600L
+
+private val placementSelectionSaver = mapSaver(
+    save = { selection: PlacementSelection ->
+        mapOf(
+            "gpsLat" to selection.gpsFix?.latitude,
+            "gpsLon" to selection.gpsFix?.longitude,
+            "gpsAccuracy" to selection.gpsFix?.accuracyMeters,
+            "gpsAt" to selection.gpsFix?.capturedAtMillis,
+            "gpsProvider" to selection.gpsFix?.provider,
+            "pinLat" to selection.pin?.latitude,
+            "pinLon" to selection.pin?.longitude,
+            "pinAt" to selection.pin?.selectedAtMillis
+        )
+    },
+    restore = { saved ->
+        val gps = (saved["gpsLat"] as? Double)?.let { latitude ->
+            StableLocationFix(
+                latitude, saved["gpsLon"] as Double, saved["gpsAccuracy"] as Float,
+                saved["gpsAt"] as Long, saved["gpsProvider"] as? String
+            )
+        }
+        val pin = (saved["pinLat"] as? Double)?.let { latitude ->
+            PlacementPin(latitude, saved["pinLon"] as Double, saved["pinAt"] as Long)
+        }
+        PlacementSelection(gps, pin)
+    }
+)
 
 /**
  * Drop screen — capture a photo, write a message, mark this place.
@@ -119,25 +158,46 @@ fun DropScreen(
     var waveformSamples by remember { mutableStateOf(List(16) { 0.12f }) }
     var previewPlayer by remember { mutableStateOf<MediaPlayer?>(null) }
     var showDiscardDialog by remember { mutableStateOf(false) }
-    var locationFix by remember { mutableStateOf<StableLocationFix?>(null) }
-    var isLocating by remember { mutableStateOf(false) }
-    var locationTimedOut by remember { mutableStateOf(false) }
-    var acceptLowAccuracy by remember { mutableStateOf(false) }
+    var placementSelection by rememberSaveable(
+        uiState.capturedImageUri?.toString(),
+        stateSaver = placementSelectionSaver
+    ) { mutableStateOf(PlacementSelection()) }
+    val locationFix = placementSelection.gpsFix
+    var locationProgress by remember(uiState.capturedImageUri) { mutableStateOf<StableLocationFix?>(null) }
+    var isLocating by remember(uiState.capturedImageUri) { mutableStateOf(false) }
+    var locationTimedOut by remember(uiState.capturedImageUri) { mutableStateOf(false) }
+    var acceptLowAccuracy by remember(uiState.capturedImageUri) { mutableStateOf(false) }
+    var locationRetry by remember(uiState.capturedImageUri) { mutableIntStateOf(0) }
     val locationPermission = rememberPermissionState(android.Manifest.permission.ACCESS_FINE_LOCATION)
     val microphonePermission = rememberPermissionState(android.Manifest.permission.RECORD_AUDIO)
     val networkStatus = rememberNetworkStatus()
+    var showVisualPlacement by remember { mutableStateOf(false) }
+    if (showVisualPlacement && locationFix != null) {
+        VisualPlacementScreen(
+            gpsFix = locationFix,
+            onPlaced = { placement ->
+                placementSelection = placementSelection.copy(pin = null)
+                viewModel.setVisualPlacement(placement)
+                showVisualPlacement = false
+            },
+            onClose = { showVisualPlacement = false }
+        )
+    }
 
-    suspend fun acquirePlacementLocation() {
+    suspend fun acquirePlacementLocation(maxAccuracyMeters: Float = 100f) {
         isLocating = true
         locationTimedOut = false
-        locationFix = null
+        locationProgress = null
         acceptLowAccuracy = false
-        val result = collectStableLocation(context) { currentBest ->
-            locationFix = currentBest
+        try {
+            val result = collectStableLocation(context, maxAccuracyMeters) { currentBest ->
+                locationProgress = currentBest
+            }
+            placementSelection = placementSelection.copy(gpsFix = result)
+            locationTimedOut = result == null
+        } finally {
+            isLocating = false
         }
-        locationFix = result
-        isLocating = false
-        locationTimedOut = result == null
     }
     
     val filePickerLauncher = rememberLauncherForActivityResult(
@@ -282,12 +342,14 @@ fun DropScreen(
     LaunchedEffect(
         uiState.creationStep,
         uiState.capturedImageUri,
-        locationPermission.status.isGranted
+        locationPermission.status.isGranted,
+        locationRetry
     ) {
         if (
             uiState.capturedImageUri != null &&
             uiState.creationStep == DropCreationStep.LOCATION &&
-            locationPermission.status.isGranted
+            locationPermission.status.isGranted &&
+            placementSelection.gpsFix == null
         ) {
             acquirePlacementLocation()
         }
@@ -987,17 +1049,60 @@ fun DropScreen(
                     }
 
                     if (uiState.creationStep == DropCreationStep.LOCATION) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp)) {
+                            Text(
+                                if (uiState.visualPlacement != null) "Visual spot saved — visitors can recognize this exact place."
+                                else "Pin the Drop to a real surface, including indoors.",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        if (locationFix == null || System.currentTimeMillis() - locationFix.capturedAtMillis > 120_000L) {
+                                            acquirePlacementLocation(maxAccuracyMeters = 500f)
+                                        }
+                                        if (placementSelection.gpsFix != null) showVisualPlacement = true
+                                        else snackbarHostState.showSnackbar("A rough location is still needed to make this Drop discoverable. Enable location services and retry.")
+                                    }
+                                },
+                                enabled = locationPermission.status.isGranted && !isLocating && !uiState.isSaving &&
+                                    networkStatus != NetworkStatus.UNAVAILABLE,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(if (uiState.visualPlacement != null) "Rescan visual spot" else "Scan and place in AR")
+                            }
+                            if (uiState.visualPlacement != null) {
+                                TextButton(onClick = { viewModel.setVisualPlacement(null) }) {
+                                    Text("Remove visual placement")
+                                }
+                                Text("Changing the map pin removes the visual placement.", style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
                         LocationConfirmationContent(
-                            locationFix = locationFix,
+                            locationFix = if (isLocating) locationProgress else uiState.visualPlacement?.let {
+                                StableLocationFix(it.latitude, it.longitude, it.accuracyMeters, it.capturedAtMillis, it.provider)
+                            } ?: locationFix,
+                            selectedPin = placementSelection.pin,
+                            canChangePin = !isLocating && !uiState.isSaving,
+                            hasVisualPlacement = uiState.visualPlacement != null,
                             isLocating = isLocating,
                             timedOut = locationTimedOut,
                             isOffline = networkStatus == NetworkStatus.UNAVAILABLE,
                             hasLocationPermission = locationPermission.status.isGranted,
                             lowAccuracyAccepted = acceptLowAccuracy,
+                            onChooseMapLocation = { latitude, longitude ->
+                                viewModel.setVisualPlacement(null)
+                                placementSelection = placementSelection.withPin(latitude, longitude, System.currentTimeMillis())
+                            },
+                            onUseGpsLocation = {
+                                viewModel.setVisualPlacement(null)
+                                placementSelection = placementSelection.copy(pin = null)
+                            },
                             onRequestPermission = locationPermission::launchPermissionRequest,
                             onAcceptLowAccuracy = { acceptLowAccuracy = true },
                             onRetry = {
-                                scope.launch { acquirePlacementLocation() }
+                                placementSelection = PlacementSelection()
+                                locationRetry++
                             }
                         )
                     }
@@ -1009,10 +1114,11 @@ fun DropScreen(
                             hasMessage = uiState.text.isNotBlank(),
                             isSaving = uiState.isSaving,
                             isOffline = networkStatus == NetworkStatus.UNAVAILABLE,
-                            hasLocation = !isLocating && locationFix != null && (
-                                locationFix!!.accuracyMeters <= LocationUtils.ACCURACY_WARNING_METERS ||
+                            hasLocation = uiState.visualPlacement != null || (!isLocating && locationFix != null && (
+                                placementSelection.pin != null ||
+                                    locationFix.accuracyMeters <= LocationUtils.ACCURACY_WARNING_METERS ||
                                     acceptLowAccuracy
-                                ),
+                                )),
                             isHitchhiker = com.somewhere.app.PrototypeFeatures.SHOW_HITCHHIKER && uiState.isHitchhiker,
                             onBack = {
                                 viewModel.setCreationStep(
@@ -1033,7 +1139,11 @@ fun DropScreen(
                                 )
                             },
                             onSubmit = {
-                                locationFix?.let {
+                                val visual = uiState.visualPlacement
+                                if (visual != null) {
+                                    viewModel.saveDrop(visual.latitude, visual.longitude, visual.accuracyMeters,
+                                        visual.capturedAtMillis, visual.provider)
+                                } else placementSelection.location?.let {
                                     viewModel.saveDrop(
                                         latitude = it.latitude,
                                         longitude = it.longitude,
@@ -1173,17 +1283,39 @@ private fun DropProgressHeader(step: DropCreationStep) {
 @Composable
 private fun LocationConfirmationContent(
     locationFix: StableLocationFix?,
+    selectedPin: PlacementPin?,
+    canChangePin: Boolean,
+    hasVisualPlacement: Boolean,
     isLocating: Boolean,
     timedOut: Boolean,
     isOffline: Boolean,
     hasLocationPermission: Boolean,
     lowAccuracyAccepted: Boolean,
+    onChooseMapLocation: (Double, Double) -> Unit,
+    onUseGpsLocation: () -> Unit,
     onRequestPermission: () -> Unit,
     onAcceptLowAccuracy: () -> Unit,
     onRetry: () -> Unit
 ) {
     val accuracy = locationFix?.accuracyMeters
+    val cameraPositionState = rememberCameraPositionState()
+    val point = selectedPin?.let { LatLng(it.latitude, it.longitude) }
+        ?: locationFix?.let { LatLng(it.latitude, it.longitude) }
+    val markerState = remember { MarkerState(position = point ?: LatLng(0.0, 0.0)) }
+    var hasCenteredMap by remember { mutableStateOf(false) }
+    LaunchedEffect(point) {
+        point?.let { markerState.position = it }
+    }
+    LaunchedEffect(locationFix?.capturedAtMillis, selectedPin == null) {
+        locationFix?.let { fix ->
+            if (!hasCenteredMap || selectedPin == null) {
+                cameraPositionState.position = CameraPosition.fromLatLngZoom(point ?: LatLng(fix.latitude, fix.longitude), 19f)
+                hasCenteredMap = true
+            }
+        }
+    }
     val accuracyColor = when {
+        selectedPin != null -> SomewhereColors.Accent
         accuracy == null -> SomewhereColors.TextMuted
         accuracy <= 10f -> SomewhereColors.AccuracyGood
         accuracy <= LocationUtils.ACCURACY_WARNING_METERS -> SomewhereColors.AccuracyModerate
@@ -1204,6 +1336,31 @@ private fun LocationConfirmationContent(
                 style = MaterialTheme.typography.titleMedium,
                 color = SomewhereColors.TextPrimary
             )
+            if (locationFix != null && hasLocationPermission && !isLocating) {
+                Text(
+                    if (hasVisualPlacement) "The map shows the search area. Your scanned surface is saved in the visual anchor. Tap the map to replace that placement."
+                    else "Tap the satellite map to move the pin onto the entrance or landmark.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = SomewhereColors.TextSecondary
+                )
+                GoogleMap(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(190.dp)
+                        .clip(RoundedCornerShape(12.dp)),
+                    cameraPositionState = cameraPositionState,
+                    properties = MapProperties(mapType = MapType.HYBRID),
+                    onMapClick = { mapPoint ->
+                        if (canChangePin) onChooseMapLocation(mapPoint.latitude, mapPoint.longitude)
+                    }
+                ) {
+                    Marker(
+                        state = markerState,
+                        title = "Drop location",
+                        snippet = "Tap elsewhere on the map to move this pin"
+                    )
+                }
+            }
             when {
                 isOffline -> {
                     Text(
@@ -1250,12 +1407,22 @@ private fun LocationConfirmationContent(
                                 .background(accuracyColor)
                         )
                         Text(
-                            text = "Location accurate to about ${locationFix.accuracyMeters.toInt()} m",
+                            text = if (hasVisualPlacement) {
+                                "Visual placement saved"
+                            } else if (selectedPin != null) {
+                                "Map pin selected"
+                            } else {
+                                "Location accurate to about ${locationFix.accuracyMeters.toInt()} m"
+                            },
                             color = SomewhereColors.TextPrimary
                         )
                     }
                     Text(
-                        text = if (locationFix.accuracyMeters <= LocationUtils.ACCURACY_WARNING_METERS) {
+                        text = if (hasVisualPlacement) {
+                            "Publish to share this visual spot. The geographic coordinate is used to find nearby Drops, not to choose the indoor floor."
+                        } else if (selectedPin != null) {
+                            "Check that the marker sits on the real entrance or spot before publishing."
+                        } else if (locationFix.accuracyMeters <= LocationUtils.ACCURACY_WARNING_METERS) {
                             "This location is ready to publish."
                         } else if (lowAccuracyAccepted) {
                             "You chose to publish with this approximate location."
@@ -1265,7 +1432,11 @@ private fun LocationConfirmationContent(
                         style = MaterialTheme.typography.bodySmall,
                         color = SomewhereColors.TextSecondary
                     )
-                    if (locationFix.accuracyMeters > LocationUtils.ACCURACY_WARNING_METERS) {
+                    if (selectedPin != null) {
+                        TextButton(onClick = onUseGpsLocation, enabled = canChangePin) {
+                            Text("Use GPS point")
+                        }
+                    } else if (!hasVisualPlacement && locationFix.accuracyMeters > LocationUtils.ACCURACY_WARNING_METERS) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             SomewhereButton(
                                 text = "Retry",

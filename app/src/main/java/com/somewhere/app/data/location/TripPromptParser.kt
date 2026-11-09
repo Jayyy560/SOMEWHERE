@@ -1,10 +1,9 @@
 package com.somewhere.app.data.location
 
-enum class TripAction {
-    ROUTE,
-    RADIUS_SEARCH,
-    SURPRISE_ME
-}
+import kotlinx.serialization.Serializable
+
+@Serializable
+enum class TripAction { ROUTE, RADIUS_SEARCH, SURPRISE_ME }
 
 data class ParsedPrompt(
     val action: TripAction,
@@ -14,182 +13,98 @@ data class ParsedPrompt(
     val radiusMeters: Double?,
     val query: String,
     val exclusions: List<String>,
-    val multiStepNextPrompt: String?
+    val multiStepNextPrompt: String?,
+    val travelMode: TravelMode? = null,
+    val timeBudgetMinutes: Int? = null,
+    val maxDetourMinutes: Int? = null,
+    val stopCount: Int? = null,
+    val returnToStart: Boolean = false,
+    val unvisitedOnly: Boolean = false,
+    val preferRecent: Boolean = false,
+    val searchCenter: String? = null,
+    val waypoints: List<String> = emptyList()
 )
 
+/** Small, explicit command grammar. No model, embedding, or remote interpretation. */
 object TripPromptParser {
-
-    private val knownQueryWords = listOf(
-        "food", "cafes", "cafe", "coffee", "restaurant", "restaurants",
-        "music", "art", "photography", "photos", "photo", "stories", "story",
-        "hidden", "gems", "gem", "secret", "secrets", "anonymous",
-        "history", "historic", "historical", "event", "events",
-        "recommendation", "recommendations", "memory", "memories",
-        "audio", "voice", "text", "recent", "latest", "new", "newest",
-        "all", "everything", "anything", "drops", "spots", "spot",
-        "best", "worthy", "cool", "interesting", "beautiful", "popular",
-        "nearby", "around", "close"
-    )
-
-    private val currentLocWords = listOf("here", "me", "current location", "my location", "around me", "near me", "close to me", "close by")
+    private val here = setOf("here", "me", "current location", "my location", "around me", "near me")
+    private val queryWords = setOf("food", "cafe", "cafes", "coffee", "restaurant", "restaurants", "music", "art",
+        "photography", "photos", "photo", "pictures", "stories", "story", "hidden", "gems", "secret", "secrets",
+        "anonymous", "history", "historic", "historical", "event", "events", "recommendation", "recommendations",
+        "memory", "memories", "audio", "voice", "text", "recent", "latest", "new", "newest", "all", "everything",
+        "anything", "drops", "spots", "spot", "unvisited", "mine", "images")
+    private val numbers = mapOf("one" to 1, "two" to 2, "three" to 3, "four" to 4, "five" to 5, "six" to 6)
 
     fun parse(prompt: String): ParsedPrompt {
-        var multiStepNextPrompt: String? = null
-        var textToParse = prompt.trim()
-
-        // Step 1: Multi-Step Split
-        val thenRegex = Regex("(?i)\\s+then\\s+(?:take me to\\s+|to\\s+)?")
-        val thenMatch = thenRegex.find(textToParse)
-        if (thenMatch != null) {
-            multiStepNextPrompt = textToParse.substring(thenMatch.range.last + 1).trim()
-            textToParse = textToParse.substring(0, thenMatch.range.first).trim()
+        var text = prompt.trim()
+        val then = Regex("(?i)\\s+then\\s+(?:take me to\\s+|to\\s+)?").find(text)
+        val next = then?.let { text.substring(it.range.last + 1).trim() }
+        if (then != null) text = text.substring(0, then.range.first)
+        val quoted = mutableListOf<String>()
+        text = Regex("\"[^\"]+\"").replace(text) { match -> quoted.add(match.value); "__quoted_${quoted.lastIndex}__" }
+        fun take(pattern: String): MatchResult? {
+            val match = Regex(pattern, RegexOption.IGNORE_CASE).find(text)
+            if (match != null) text = text.replaceRange(match.range, " ")
+            return match
         }
-
-        // Step 2: Action Detection
-        var action = TripAction.ROUTE
-        val surpriseMeRegex = Regex("(?i)\\b(?:surprise me|take me somewhere)\\b")
-        if (surpriseMeRegex.containsMatchIn(textToParse)) {
-            action = TripAction.SURPRISE_ME
-            textToParse = textToParse.replace(surpriseMeRegex, " ").trim()
+        val surprise = take("\\b(?:surprise me|take me somewhere)\\b") != null
+        val mode = when {
+            take("\\b(?:walking|walk|on foot)\\b") != null -> TravelMode.WALKING
+            take("\\b(?:cycling|cycle|bicycling|bike)\\b") != null -> TravelMode.CYCLING
+            take("\\b(?:driving|drive|by car)\\b") != null -> TravelMode.DRIVING
+            else -> null
         }
-
-        // Step 3: Keyword Extraction via Spans
-        val spansToRemove = mutableListOf<IntRange>()
-        var radiusMeters: Double? = null
+        val loop = take("\\b(?:and\\s+)?(?:bring me back here|return to (?:the )?start|back to here|round trip|circular|loop)\\b") != null
+        val unvisited = take("\\b(?:unvisited|not visited|new to me)\\b") != null
+        val recent = Regex("(?i)\\b(?:recent|latest|newest)\\b").containsMatchIn(text)
+        val detour = take("\\b(?:with\\s+|under\\s+|up to\\s+)?(\\d+)\\s*[- ]?\\s*(?:minutes?|mins?)\\s*(?:extra|detour)\\b")
+            ?.groupValues?.get(1)?.toIntOrNull()?.coerceIn(0, 180)
+        val time = take("\\b(?:on\\s+)?(?:a\\s+)?(?:within\\s+|under\\s+|for\\s+)?(\\d+)\\s*[- ]?\\s*(minutes?|mins?|hours?|hrs?)\\b")?.let {
+            val value = it.groupValues[1].toIntOrNull() ?: 30
+            (value * if (it.groupValues[2].startsWith("h", true)) 60 else 1).coerceIn(1, 480)
+        }
+        val count = take("\\b(?:find\\s+(?:me\\s+)?)?(\\d+|one|two|three|four|five|six)(?=\\s+(?:[\\p{L}]+\\s+){0,2}drops?\\b)")?.groupValues?.get(1)?.let {
+            (it.toIntOrNull() ?: numbers[it.lowercase()])?.coerceIn(1, 8)
+        }
+        val radius = take("\\b(?:within|in)\\s+(\\d+(?:\\.\\d+)?)\\s*(miles?|kilometers?|km|meters?|m)\\b")?.let {
+            val factor = when { it.groupValues[2].startsWith("k", true) -> 1000.0; it.groupValues[2].startsWith("mile", true) -> 1609.34; else -> 1.0 }
+            (it.groupValues[1].toDouble() * factor).coerceIn(1.0, 100000.0)
+        }
+        val nearby = take("\\b(?:nearby|around me|near me|close by|close to me)\\b") != null
         val exclusions = mutableListOf<String>()
-
-        // 3a. Radius
-        val radiusRegex = Regex("(?i)\\b(?:within|in)?\\s*([0-9]+(?:\\.[0-9]+)?)\\s*(miles|mile|kilometers|kilometer|km|meters|meter|m)\\b")
-        val radMatch = radiusRegex.find(textToParse)
-        if (radMatch != null) {
-            spansToRemove.add(radMatch.range)
-            val amount = radMatch.groupValues[1].toDoubleOrNull() ?: 5.0
-            val unit = radMatch.groupValues[2].lowercase()
-            radiusMeters = when {
-                unit.startsWith("k") -> amount * 1000.0
-                unit == "m" || unit == "meter" || unit == "meters" -> amount
-                else -> amount * 1609.34
+        val exclusionRegex = Regex("(?i)(?:\\bwithout\\s+|(?<!\\S)-(?=[\\p{L}_]))(\"[^\"]+\"|[\\p{L}\\p{N}_]+)")
+        exclusionRegex.findAll(text).toList().asReversed().forEach {
+            exclusions.add(0, it.groupValues[1].trim('"'))
+            text = text.replaceRange(it.range, " ")
+        }
+        for (i in exclusions.indices) quoted.forEachIndexed { index, value -> exclusions[i] = exclusions[i].replace("__quoted_${index}__",value.trim('"')) }
+        quoted.forEachIndexed { index, value -> text = text.replace("__quoted_${index}__", value) }
+        text = text.replace(Regex("\\s+"), " ").trim()
+        val markers = Regex("(?i)\\b(from|to|via|near)\\s+(\"[^\"]+\"|.+?)(?=\\s+\\b(?:from|to|via|near)\\b\\s+|$)").findAll(text).toList()
+        var origin: String? = null; var destination: String? = null; var center: String? = null
+        val waypoints = mutableListOf<String>()
+        var query = if (markers.isEmpty()) text else text.substring(0, markers.first().range.first).trim()
+        for (marker in markers) {
+            val value = marker.groupValues[2].trim().trim('"')
+            when (marker.groupValues[1].lowercase()) {
+                "from" -> origin = value
+                "to" -> destination = value
+                "near" -> center = value
+                "via" -> waypoints.addAll(value.split(Regex("\\s*;\\s*|\\s+and\\s+")).filter { it.isNotBlank() })
             }
         }
-        
-        // Handle "nearby" / "around me" radius defaults
-        val nearbyRegex = Regex("(?i)\\b(nearby|around me|near me|close by|close to me|radius)\\b")
-        val nearbyMatches = nearbyRegex.findAll(textToParse)
-        for (match in nearbyMatches) {
-            spansToRemove.add(match.range)
-            if (radiusMeters == null && action != TripAction.SURPRISE_ME) {
-                radiusMeters = 2000.0
+        query = query.replace(Regex("(?i)\\b(?:find|show|me|take|navigate|route|on|a|and|please)\\b"), " ")
+            .replace(Regex("\\s+"), " ").trim()
+        var action = when { surprise -> TripAction.SURPRISE_ME; destination != null || waypoints.isNotEmpty() -> TripAction.ROUTE; else -> TripAction.RADIUS_SEARCH }
+        if (markers.isEmpty() && !surprise && radius == null && !nearby && time == null && !loop && count == null && mode == null && !unvisited) {
+            val words = TripSearch.tokens(query)
+            if (query.isNotBlank() && words.none { word -> word in queryWords || queryWords.any { TripSearch.fuzzy(word,it) } } && !query.contains('#') && !query.contains('@')) {
+                destination = query; query = ""; action = TripAction.ROUTE
             }
         }
-
-        // 3b. Exclusions
-        val excRegex = Regex("(?i)(?:without\\s+|-)([\\w]+)")
-        val excMatches = excRegex.findAll(textToParse)
-        for (match in excMatches) {
-            spansToRemove.add(match.range)
-            exclusions.add(match.groupValues[1])
-        }
-
-        // Clean up the text by removing the spans (process from back to front)
-        var cleanedText = textToParse
-        spansToRemove.sortedByDescending { it.first }.forEach { range ->
-            // Prevent out-of-bounds just in case
-            if (range.first >= 0 && range.last < cleanedText.length) {
-                cleanedText = cleanedText.removeRange(range)
-            }
-        }
-        // Condense spaces
-        cleanedText = cleanedText.replace(Regex("\\s+"), " ").trim()
-
-        // Step 4: Routing Markers
-        var origin: String? = null
-        var destination: String? = null
-        var waypoint: String? = null
-        var query: String = ""
-
-        val fromRegex = Regex("(?i)\\bfrom\\b")
-        val toRegex = Regex("(?i)\\bto\\b")
-        val viaRegex = Regex("(?i)\\bvia\\b")
-
-        val fromMatch = fromRegex.find(cleanedText)
-        val toMatch = toRegex.find(cleanedText)
-        val viaMatch = viaRegex.find(cleanedText)
-
-        // Find all markers and their indices
-        val markers = mutableListOf<Pair<String, Int>>()
-        if (fromMatch != null) markers.add(Pair("from", fromMatch.range.last + 1))
-        if (toMatch != null) markers.add(Pair("to", toMatch.range.last + 1))
-        if (viaMatch != null) markers.add(Pair("via", viaMatch.range.last + 1))
-
-        if (markers.isEmpty()) {
-            query = cleanedText
-        } else {
-            markers.sortBy { it.second }
-            // If there's text before the first marker, it's a query
-            if (markers.first().second - markers.first().first.length - 1 > 0) {
-                query = cleanedText.substring(0, markers.first().second - markers.first().first.length - 1).trim()
-            }
-
-            for (i in markers.indices) {
-                val marker = markers[i]
-                val start = marker.second
-                val end = if (i + 1 < markers.size) markers[i + 1].second - markers[i + 1].first.length - 1 else cleanedText.length
-                
-                if (start <= end) {
-                    val value = cleanedText.substring(start, end).trim()
-                    if (value.isNotEmpty()) {
-                        when (marker.first) {
-                            "from" -> origin = value
-                            "to" -> destination = value
-                            "via" -> waypoint = value
-                        }
-                    }
-                }
-            }
-        }
-
-        // Step 5: Query vs Destination Fallback
-        if (origin == null && destination == null && waypoint == null && action != TripAction.SURPRISE_ME) {
-            if (query.isNotBlank()) {
-                val words = query.lowercase().split("\\s+".toRegex())
-                val isKnownQuery = words.any { knownQueryWords.contains(it) }
-                if (isKnownQuery || radiusMeters != null) {
-                    action = TripAction.RADIUS_SEARCH
-                } else {
-                    action = TripAction.ROUTE
-                    destination = query
-                    query = ""
-                }
-            }
-        } else if (action != TripAction.SURPRISE_ME && (origin != null || destination != null || waypoint != null)) {
-            action = TripAction.ROUTE
-        }
-
-        // Default query empty if only routing
-        if (query.equals("route", ignoreCase = true) || query.equals("navigate", ignoreCase = true)) {
-            query = ""
-        }
-
-        // Step 6: Normalization
-        val normalize = { s: String? ->
-            if (s != null && currentLocWords.contains(s.lowercase())) null else s
-        }
-        origin = normalize(origin)
-        destination = normalize(destination)
-        waypoint = normalize(waypoint)
-        
-        // If it's a RADIUS_SEARCH and origin was specified as "here", it's normalized to null.
-        // This means we use current location. If origin is totally omitted, we also use current location.
-
-        return ParsedPrompt(
-            action = action,
-            origin = origin,
-            destination = destination,
-            waypoint = waypoint,
-            radiusMeters = radiusMeters,
-            query = query,
-            exclusions = exclusions,
-            multiStepNextPrompt = multiStepNextPrompt
-        )
+        fun normalize(value: String?) = value?.takeUnless { it.lowercase() in here }
+        return ParsedPrompt(action, normalize(origin), normalize(destination), waypoints.firstOrNull()?.let(::normalize),
+            radius ?: if (nearby) 2000.0 else null, query, exclusions, next, mode, time, detour, count, loop, unvisited, recent,
+            normalize(center), waypoints.mapNotNull(::normalize))
     }
 }

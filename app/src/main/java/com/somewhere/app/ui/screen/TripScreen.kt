@@ -52,6 +52,7 @@ import com.google.android.gms.maps.model.LatLngBounds
 import com.google.maps.android.compose.*
 import com.somewhere.app.LocalPipMode
 import com.somewhere.app.data.remote.NearbyDrop
+import com.somewhere.app.data.location.*
 import com.somewhere.app.ui.component.DropDetailSheet
 import com.somewhere.app.ui.theme.SomewhereColors
 import com.somewhere.app.ui.theme.AppTheme
@@ -70,6 +71,7 @@ import androidx.compose.runtime.DisposableEffect
 @Composable
 fun TripScreen(
     onBack: () -> Unit,
+    isActive: Boolean = true,
     tripViewModel: TripViewModel = viewModel(),
     discoveryViewModel: com.somewhere.app.viewmodel.DiscoveryViewModel = androidx.hilt.navigation.compose.hiltViewModel()
 ) {
@@ -111,20 +113,39 @@ fun TripScreen(
         }
     }
 
+    var showOptions by remember { mutableStateOf(false) }
+    var showLibrary by remember { mutableStateOf(false) }
+    var showStops by remember { mutableStateOf(false) }
+    var saveDialog by remember { mutableStateOf<Boolean?>(null) }
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val tripHaptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    LaunchedEffect(uiState.approachingDrop?.id, isActive) {
+        if (isActive && lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED) && uiState.approachingDrop != null && uiState.options.haptics) tripHaptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+    }
+    androidx.activity.compose.BackHandler(enabled = isActive && (uiState.phase != TripPhase.INPUT || uiState.isLoading)) {
+        if (uiState.isNavigating) tripViewModel.stopNavigation() else tripViewModel.resetTrip()
+    }
+    DisposableEffect(lifecycleOwner, locationPermission.status.isGranted, isActive) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_START && locationPermission.status.isGranted && isActive) tripViewModel.startLocationTracking()
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) tripViewModel.stopLocationTracking()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer); tripViewModel.stopLocationTracking() }
+    }
     // Get current location
     var previewDrop by remember { mutableStateOf<NearbyDrop?>(null) }
 
     // Request permissions on launch
-    LaunchedEffect(Unit) {
-        if (!locationPermission.status.isGranted) {
+    LaunchedEffect(isActive) {
+        if (isActive && !locationPermission.status.isGranted) {
             locationPermission.launchPermissionRequest()
         }
     }
 
-    LaunchedEffect(locationPermission.status.isGranted) {
-        if (locationPermission.status.isGranted) {
-            tripViewModel.startLocationTracking()
-        }
+    LaunchedEffect(locationPermission.status.isGranted, isActive) {
+        if (locationPermission.status.isGranted && isActive) tripViewModel.startLocationTracking()
+        else tripViewModel.stopLocationTracking()
     }
 
     val currentLocation = uiState.currentUserLocation
@@ -144,10 +165,20 @@ fun TripScreen(
                         currentLat = currentLocation?.latitude,
                         currentLng = currentLocation?.longitude
                     )
-                }
+                },
+                onOptions = { showOptions = true },
+                onLibrary = { showLibrary = true },
+                onOptionsChange = tripViewModel::updateOptions
             )
 
-            TripPhase.ROUTE_VIEW, TripPhase.NAVIGATING -> TripMapPhase(
+            TripPhase.ROUTE_VIEW, TripPhase.NAVIGATING -> if (uiState.options.cameraFree) TripListPhase(
+                uiState = uiState,
+                onBack = { if (uiState.isNavigating) tripViewModel.stopNavigation() else tripViewModel.resetTrip() },
+                onStart = requestNavigationStart, onStop = tripViewModel::stopNavigation,
+                onSave = { saveDialog = false }, onPublish = { saveDialog = true }, onStops = { showStops = true },
+                onToggleView = { tripViewModel.setListNavigation(false) },
+                onPreview = { previewDrop = it }, onDismissApproaching = tripViewModel::dismissApproachingDrop
+            ) else TripMapPhase(
                 uiState = uiState,
                 currentLocation = currentLocation,
                 onBack = {
@@ -158,10 +189,29 @@ fun TripScreen(
                 onStartNavigation = requestNavigationStart,
                 onStopNavigation = tripViewModel::stopNavigation,
                 onDismissApproaching = tripViewModel::dismissApproachingDrop,
-                setPreviewDrop = { previewDrop = it }
+                setPreviewDrop = { previewDrop = it },
+                onSave = { saveDialog = false }, onPublish = { saveDialog = true }, onStops = { showStops = true },
+                onToggleView = { tripViewModel.setListNavigation(true) }
             )
         }
 
+        if (showOptions) WayfinderOptionsSheet(uiState.options, tripViewModel::updateOptions) { showOptions = false }
+        if (showLibrary) WayfinderLibrarySheet(uiState, { showLibrary = false }, tripViewModel::openSavedTrip,
+            tripViewModel::deleteSavedTrip, tripViewModel::updateJournal, tripViewModel::loadTrails, tripViewModel::openTrail,
+            tripViewModel::addJournalPhotos, tripViewModel::removeJournalPhoto)
+        if (showStops) WayfinderStopsSheet(uiState, { showStops = false }, tripViewModel::recordVisit, tripViewModel::addStop,
+            tripViewModel::removeStop, { previewDrop = it; showStops = false }, tripViewModel::setStepFreeAccess)
+        saveDialog?.let { publish ->
+            WayfinderSaveDialog(publish, uiState.isPublishingTrail, uiState.error, { saveDialog = null }) { title, description ->
+                if (publish) tripViewModel.publishTrail(title,description) else { tripViewModel.saveTrip(title); saveDialog = null }
+            }
+        }
+        LaunchedEffect(uiState.notice) { if (uiState.notice == "Trail published.") saveDialog = null }
+        uiState.notice?.let { notice ->
+            Snackbar(modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp).padding(bottom = 100.dp),
+                containerColor = SomewhereColors.Card, contentColor = SomewhereColors.TextPrimary,
+                action = { TextButton(onClick = tripViewModel::clearError) { Text("Dismiss", color = SomewhereColors.TextPrimary) } }) { Text(notice) }
+        }
         // Error snackbar
         uiState.error?.let { error ->
             Snackbar(
@@ -191,7 +241,7 @@ fun TripScreen(
                     TextButton(
                         onClick = {
                             notificationPermissionLauncher.launch(
-                                android.Manifest.permission.POST_NOTIFICATIONS
+                                if (android.os.Build.VERSION.SDK_INT >= 33) android.Manifest.permission.POST_NOTIFICATIONS else "android.permission.POST_NOTIFICATIONS"
                             )
                         }
                     ) { Text("Allow") }
@@ -273,11 +323,14 @@ fun TripScreen(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @Composable
-private fun TripInputPhase(
+internal fun TripInputPhase(
     uiState: TripUiState,
     onPromptChange: (String, Int) -> Unit,
     onSuggestionSelected: (String) -> Unit,
-    onSearch: () -> Unit
+    onSearch: () -> Unit,
+    onOptions: () -> Unit,
+    onLibrary: () -> Unit,
+    onOptionsChange: (TripOptions) -> Unit
 ) {
     val scrollState = rememberScrollState()
     val isFoldTheme = LocalAppTheme.current == AppTheme.FOLD
@@ -305,7 +358,7 @@ private fun TripInputPhase(
     val isImeVisible = androidx.compose.foundation.layout.WindowInsets.ime.getBottom(androidx.compose.ui.platform.LocalDensity.current) > 0
     val screenHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
     val topSpacerHeight by animateDpAsState(
-        targetValue = if (isImeVisible) 24.dp else (screenHeight / 2) - 150.dp,
+        targetValue = if (isImeVisible) 24.dp else ((screenHeight / 3) - 100.dp).coerceAtLeast(32.dp),
         animationSpec = tween(500, easing = EaseOutCubic),
         label = "topSpacer"
     )
@@ -333,7 +386,7 @@ private fun TripInputPhase(
             modifier = Modifier.align(Alignment.CenterHorizontally)
         )
 
-        Spacer(modifier = Modifier.height(48.dp))
+        Spacer(modifier = Modifier.height(32.dp))
 
         // ── Iridescent Glass Search Bar with Send Button ──
         val shape = when {
@@ -519,7 +572,7 @@ private fun TripInputPhase(
                             BorderStroke(0.5.dp, SomewhereColors.GlassBorder),
                             if (isFoldTheme) RectangleShape else CircleShape
                         )
-                        .clickable(role = androidx.compose.ui.semantics.Role.Button) { onSearch() },
+                        .clickable(enabled = !uiState.isLoading, role = androidx.compose.ui.semantics.Role.Button) { onSearch() },
                     contentAlignment = Alignment.Center
                 ) {
                     if (uiState.isLoading) {
@@ -589,13 +642,26 @@ private fun TripInputPhase(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        WayfinderModeRow(uiState.options, enabled = !uiState.isLoading, onChange = onOptionsChange)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            WayfinderAction("Trip options", Icons.Outlined.Tune, Modifier.weight(1f), onOptions)
+            WayfinderAction("Saved & trails", Icons.Outlined.Bookmarks, Modifier.weight(1f), onLibrary)
+        }
+        if (uiState.options.timeBudgetMinutes != null || uiState.options.returnToStart || uiState.options.unvisitedOnly) {
+            Text(listOfNotNull(uiState.options.timeBudgetMinutes?.let { "$it min" }, "${uiState.options.stopCount} stops",
+                if (uiState.options.returnToStart) "Return to start" else null, if (uiState.options.unvisitedOnly) "Unvisited" else null).joinToString(" · "),
+                modifier = Modifier.padding(top = 10.dp), style = MaterialTheme.typography.bodySmall, color = SomewhereColors.TextSecondary)
+        }
+        if (uiState.isLoading) Text(uiState.planningMessage, modifier = Modifier.padding(top = 10.dp), style = MaterialTheme.typography.bodySmall, color = SomewhereColors.TextSecondary)
+        Spacer(Modifier.height(16.dp))
         // ── Quick Action Chips ── (fire search immediately on tap)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            data class QuickAction(val emoji: String, val label: String, val query: String)
+            data class QuickAction(val icon: androidx.compose.ui.graphics.vector.ImageVector, val label: String, val query: String)
             val quickActions = listOf(
-                QuickAction("📍", "Nearby", "all drops within 2km"),
-                QuickAction("🎲", "Surprise Me", "surprise me"),
-                QuickAction("🆕", "Recent", "recent within 5km")
+                QuickAction(Icons.Outlined.NearMe, "Nearby", "all drops within 2km"),
+                QuickAction(Icons.Outlined.Explore, "Surprise Me", "surprise me"),
+                QuickAction(Icons.Outlined.Schedule, "Recent", "recent within 5km")
             )
             items(quickActions) { action ->
                 Box(
@@ -617,7 +683,7 @@ private fun TripInputPhase(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text(action.emoji, fontSize = 14.sp)
+                        Icon(action.icon, null, Modifier.size(14.dp), tint = SomewhereColors.TextSecondary)
                         Text(
                             action.label,
                             fontSize = 13.sp,
@@ -712,7 +778,11 @@ private fun TripMapPhase(
     onStartNavigation: () -> Unit,
     onStopNavigation: () -> Unit,
     onDismissApproaching: () -> Unit,
-    setPreviewDrop: (NearbyDrop) -> Unit
+    setPreviewDrop: (NearbyDrop) -> Unit,
+    onSave: () -> Unit,
+    onPublish: () -> Unit,
+    onStops: () -> Unit,
+    onToggleView: () -> Unit
 ) {
     val cameraPositionState = rememberCameraPositionState()
     val coroutineScope = rememberCoroutineScope()
@@ -967,6 +1037,9 @@ private fun TripMapPhase(
                     .navigationBarsPadding()
                     .padding(bottom = 110.dp)
             ) {
+                WayfinderResultActions(uiState, onStops, onSave, onPublish, onToggleView,
+                    Modifier.padding(horizontal = 16.dp).padding(bottom = 8.dp))
+                if (uiState.isLoading) Text(uiState.planningMessage, Modifier.padding(horizontal = 20.dp, vertical = 8.dp), color = SomewhereColors.TextPrimary, style = MaterialTheme.typography.bodySmall)
                 // Drop count pill
                 Surface(
                     modifier = Modifier
@@ -988,7 +1061,7 @@ private fun TripMapPhase(
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
-                            "${uiState.filteredDrops.size} drops found on route",
+                            "${uiState.filteredDrops.size} ${if (uiState.routePolyline.isEmpty()) "nearby discoveries" else "reachable discoveries"}",
                             color = SomewhereColors.TextPrimary,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium
@@ -1007,6 +1080,7 @@ private fun TripMapPhase(
                             NearbyDropItem(
                                 drop = drop,
                                 isSelected = uiState.selectedDrop?.id == drop.id,
+                                reason = uiState.recommendations[drop.id]?.reasons?.joinToString(" · ").orEmpty(),
                                 onClick = {
                                     onDropSelected(drop)
                                     coroutineScope.launch {
@@ -1135,6 +1209,7 @@ private fun TripMapPhase(
 private fun NearbyDropItem(
     drop: NearbyDrop,
     isSelected: Boolean,
+    reason: String,
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
@@ -1192,6 +1267,7 @@ private fun NearbyDropItem(
                     overflow = TextOverflow.Ellipsis,
                     lineHeight = 16.sp
                 )
+                if (reason.isNotBlank()) Text(reason, color = Color.White.copy(alpha = .8f), fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Spacer(modifier = Modifier.height(4.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (drop.category != null) {

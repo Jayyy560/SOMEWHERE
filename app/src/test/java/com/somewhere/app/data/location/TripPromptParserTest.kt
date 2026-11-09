@@ -70,4 +70,47 @@ class TripPromptParserTest {
         assertEquals("london", parsed.destination)
         assertEquals("paris", parsed.multiStepNextPrompt)
     }
+
+    @Test fun testBudgetedPhotographyLoop() {
+        val parsed = TripPromptParser.parse("Find three photography Drops on a 30-minute walk and bring me back here")
+        assertEquals("photography Drops", parsed.query)
+        assertEquals(3, parsed.stopCount)
+        assertEquals(30, parsed.timeBudgetMinutes)
+        assertEquals(TravelMode.WALKING, parsed.travelMode)
+        assertEquals(true, parsed.returnToStart)
+    }
+    @Test fun testCommuteDetourIsSeparateFromTotalTime() {
+        val parsed = TripPromptParser.parse("music to India Gate with 5 minutes detour driving")
+        assertEquals(5, parsed.maxDetourMinutes)
+        assertNull(parsed.timeBudgetMinutes)
+        assertEquals("India Gate", parsed.destination)
+        assertEquals(TravelMode.DRIVING, parsed.travelMode)
+    }
+    @Test fun testNamedSearchCenter() {
+        val parsed = TripPromptParser.parse("hidden gems near Connaught Place")
+        assertEquals("Connaught Place", parsed.searchCenter)
+        assertEquals("hidden gems", parsed.query)
+        assertEquals(TripAction.RADIUS_SEARCH, parsed.action)
+    }
+    @Test fun testQuotedExclusionsAndNegativeCoordinates() {
+        val parsed = TripPromptParser.parse("photography from -28.6,77.2 to -28.61,77.21 without \"street art\"")
+        assertEquals("-28.6,77.2", parsed.origin)
+        assertEquals(listOf("street art"), parsed.exclusions)
+    }
+    @Test fun testMultipleWaypoints() {
+        val parsed = TripPromptParser.parse("to Delhi via Agra and Jaipur")
+        assertEquals(listOf("Agra", "Jaipur"), parsed.waypoints)
+        assertEquals("Delhi", parsed.destination)
+    }
+
+    @Test fun testQuotedPlaceKeepsTravelWords() {
+        val parsed = TripPromptParser.parse("to \"Walk of Fame\" cycling")
+        assertEquals("Walk of Fame",parsed.destination)
+        assertEquals(TravelMode.CYCLING,parsed.travelMode)
+    }
+    @Test fun testTypoStillClassifiesAsDiscovery() {
+        val parsed = TripPromptParser.parse("histroy")
+        assertEquals(TripAction.RADIUS_SEARCH,parsed.action)
+        assertEquals("histroy",parsed.query)
+    }
 }

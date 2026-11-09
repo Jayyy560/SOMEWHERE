@@ -83,9 +83,13 @@ class DropRepository(
         isHitchhiker: Boolean = false,
         placementAccuracyMeters: Float? = null,
         placementLocationTimestamp: Long? = null,
-        placementLocationProvider: String? = null
+        placementLocationProvider: String? = null,
+        spatialAnchor: com.somewhere.app.data.model.SpatialAnchor? = null
     ): Drop {
         require(text.isNotBlank()) { "Drop text must not be blank" }
+        require(spatialAnchor == null || spatialAnchor.canResolveAt(System.currentTimeMillis())) {
+            "The visual anchor has expired. Scan the spot again before publishing."
+        }
 
         val uploadedImageUrl = uploadImageAndGetPublicUrl(Uri.parse(imagePath))
         val normalizedAudioPath = audioPath?.let { normalizeLocalPath(it) ?: it }
@@ -124,7 +128,8 @@ class DropRepository(
                 placementAccuracyMeters = placementAccuracyMeters,
                 placementLocationTimestamp = placementLocationTimestamp
                     ?.let { Instant.ofEpochMilli(it).toString() },
-                placementLocationProvider = placementLocationProvider
+                placementLocationProvider = placementLocationProvider,
+                spatialAnchor = spatialAnchor
             )
         )
 
@@ -150,7 +155,8 @@ class DropRepository(
             isHitchhiker = isHitchhiker,
             placementAccuracyMeters = placementAccuracyMeters,
             placementLocationTimestamp = placementLocationTimestamp,
-            placementLocationProvider = placementLocationProvider
+            placementLocationProvider = placementLocationProvider,
+            spatialAnchor = spatialAnchor
         )
         dao.insert(drop)
         return drop
@@ -209,7 +215,8 @@ class DropRepository(
                     placementAccuracyMeters = remote.placementAccuracyMeters,
                     placementLocationTimestamp = remote.placementLocationTimestamp
                         ?.let(::parseTimestamp),
-                    placementLocationProvider = remote.placementLocationProvider
+                    placementLocationProvider = remote.placementLocationProvider,
+                    spatialAnchor = remote.spatialAnchor
                 )
             }
 
@@ -286,6 +293,8 @@ class DropRepository(
         val reportedDrops = sharedPrefs.getStringSet("reported_drops", emptySet()) ?: emptySet()
         val blockedUsers = sharedPrefs.getStringSet("blocked_users", emptySet()) ?: emptySet()
 
+        // Remote coordinates/anchor metadata are authoritative after relocation or rehosting.
+        // Local copies remain available when the network has no matching row.
         return (validRemote + local)
             .distinctBy { it.first.id }
             .filter { !reportedDrops.contains(it.first.id) }
@@ -519,7 +528,9 @@ class DropRepository(
             if (metadata == null) nearby else nearby.copy(
                 placementAccuracyMeters = metadata.placementAccuracyMeters,
                 placementLocationTimestamp = metadata.placementLocationTimestamp,
-                placementLocationProvider = metadata.placementLocationProvider
+                placementLocationProvider = metadata.placementLocationProvider,
+                spatialAnchor = metadata.spatialAnchor,
+                authorId = metadata.authorId ?: nearby.authorId
             )
         }
 
@@ -550,7 +561,8 @@ class DropRepository(
                     placementAccuracyMeters = remote.placementAccuracyMeters,
                     placementLocationTimestamp = remote.placementLocationTimestamp
                         ?.let(::parseTimestamp),
-                    placementLocationProvider = remote.placementLocationProvider
+                    placementLocationProvider = remote.placementLocationProvider,
+                    spatialAnchor = remote.spatialAnchor
                 )
 
                 val dist = remote.distanceMeters?.toFloat()
@@ -842,7 +854,8 @@ class DropRepository(
                     placementAccuracyMeters = remote.placementAccuracyMeters,
                     placementLocationTimestamp = remote.placementLocationTimestamp
                         ?.let(::parseTimestamp),
-                    placementLocationProvider = remote.placementLocationProvider
+                    placementLocationProvider = remote.placementLocationProvider,
+                    spatialAnchor = remote.spatialAnchor
                 )
             }.sortedByDescending { it.timestamp }
         }.onFailure {
@@ -884,7 +897,8 @@ class DropRepository(
                 placementAccuracyMeters = remote.placementAccuracyMeters,
                 placementLocationTimestamp = remote.placementLocationTimestamp
                     ?.let(::parseTimestamp),
-                placementLocationProvider = remote.placementLocationProvider
+                placementLocationProvider = remote.placementLocationProvider,
+                spatialAnchor = remote.spatialAnchor
             )
         }.getOrNull()
     }
@@ -965,7 +979,8 @@ class DropRepository(
                         placementAccuracyMeters = remote.placementAccuracyMeters,
                         placementLocationTimestamp = remote.placementLocationTimestamp
                             ?.let(::parseTimestamp),
-                        placementLocationProvider = remote.placementLocationProvider
+                        placementLocationProvider = remote.placementLocationProvider,
+                        spatialAnchor = remote.spatialAnchor
                     )
                 )
             }
@@ -1036,6 +1051,7 @@ class DropRepository(
                         placementLocationTimestamp?.let { Instant.ofEpochMilli(it).toString() }
                     )
                     set("placement_location_provider", placementLocationProvider)
+                    set("spatial_anchor", null as String?)
                 }) {
                     filter { eq("id", dropId) }
                 }
@@ -1049,7 +1065,8 @@ class DropRepository(
                         carriedByUserId = null,
                         placementAccuracyMeters = placementAccuracyMeters,
                         placementLocationTimestamp = placementLocationTimestamp,
-                        placementLocationProvider = placementLocationProvider
+                        placementLocationProvider = placementLocationProvider,
+                        spatialAnchor = null
                     )
                 )
             }

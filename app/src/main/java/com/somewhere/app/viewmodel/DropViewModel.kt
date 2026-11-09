@@ -15,6 +15,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import com.somewhere.app.PrototypeFeatures
 import org.json.JSONArray
+import com.somewhere.app.data.model.VisualPlacement
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
 import javax.inject.Inject
 
 enum class DropCreationStep {
@@ -50,11 +53,15 @@ class DropViewModel @Inject constructor(
         val deadDropFileSize: Long? = null,
         val deadDropFileType: String? = null,
         val isHitchhiker: Boolean = false,
-        val creationStep: DropCreationStep = DropCreationStep.MESSAGE
+        val creationStep: DropCreationStep = DropCreationStep.MESSAGE,
+        val visualPlacement: VisualPlacement? = null
     )
 
     private val _uiState = MutableStateFlow(
         DropUiState(
+            visualPlacement = savedStateHandle.get<String>("visualPlacement")?.let {
+                runCatching { Json.decodeFromString<VisualPlacement>(it) }.getOrNull()
+            },
             capturedImageUri = savedStateHandle.get<Uri>("capturedImageUri"),
             recordedAudioUri = savedStateHandle.get<Uri>("recordedAudioUri"),
             text = savedStateHandle.get<String>("text") ?: "",
@@ -92,6 +99,7 @@ class DropViewModel @Inject constructor(
                 savedStateHandle["deadDropFileType"] = state.deadDropFileType
                 savedStateHandle["isHitchhiker"] = state.isHitchhiker
                 savedStateHandle["creationStep"] = state.creationStep.name
+                savedStateHandle["visualPlacement"] = state.visualPlacement?.let { Json.encodeToString(it) }
             }
         }
     }
@@ -100,6 +108,7 @@ class DropViewModel @Inject constructor(
         _uiState.update {
             it.copy(
                 capturedImageUri = uri,
+                visualPlacement = null,
                 creationStep = DropCreationStep.MESSAGE
             )
         }
@@ -174,6 +183,10 @@ class DropViewModel @Inject constructor(
         _uiState.update { it.copy(creationStep = step) }
     }
 
+    fun setVisualPlacement(placement: VisualPlacement?) {
+        _uiState.update { it.copy(visualPlacement = placement) }
+    }
+
     fun clearFile() {
         _uiState.update { 
             it.copy(
@@ -188,13 +201,19 @@ class DropViewModel @Inject constructor(
     fun saveDrop(
         latitude: Double,
         longitude: Double,
-        placementAccuracyMeters: Float,
+        placementAccuracyMeters: Float?,
         placementLocationTimestamp: Long,
         placementLocationProvider: String?
     ) {
         val state = _uiState.value
         val imageUri = state.capturedImageUri ?: return
         if (state.text.isBlank()) return
+        if (state.isSaving) return
+        val visual = state.visualPlacement
+        if (visual != null && !visual.isUsableAt(System.currentTimeMillis())) {
+            _uiState.update { it.copy(error = "This visual placement has expired. Scan the spot again.") }
+            return
+        }
 
         _uiState.update { it.copy(isSaving = true, error = null) }
 
@@ -205,8 +224,8 @@ class DropViewModel @Inject constructor(
                     text = state.text,
                     imagePath = imageUri.toString(),
                     audioPath = state.recordedAudioUri?.toString(),
-                    latitude = latitude,
-                    longitude = longitude,
+                    latitude = visual?.latitude ?: latitude,
+                    longitude = visual?.longitude ?: longitude,
                     expiresAt = expiresAt,
                     isAnonymous = state.isAnonymous,
                     category = state.category,
@@ -216,9 +235,10 @@ class DropViewModel @Inject constructor(
                     fileName = state.deadDropFileName,
                     fileSize = state.deadDropFileSize,
                     isHitchhiker = PrototypeFeatures.SHOW_HITCHHIKER && state.isHitchhiker,
-                    placementAccuracyMeters = placementAccuracyMeters,
-                    placementLocationTimestamp = placementLocationTimestamp,
-                    placementLocationProvider = placementLocationProvider
+                    placementAccuracyMeters = visual?.accuracyMeters ?: placementAccuracyMeters,
+                    placementLocationTimestamp = visual?.capturedAtMillis ?: placementLocationTimestamp,
+                    placementLocationProvider = visual?.provider ?: placementLocationProvider,
+                    spatialAnchor = visual?.anchor
                 )
                 _uiState.update { it.copy(isSaving = false, isSaved = true) }
             } catch (e: Exception) {

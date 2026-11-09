@@ -2,6 +2,7 @@ package com.somewhere.app.data.remote
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import com.somewhere.app.data.model.SpatialAnchor
 
 @Serializable
 data class DropInsert(
@@ -25,5 +26,6 @@ data class DropInsert(
     @SerialName("carried_by_user_id") val carriedByUserId: String? = null,
     @SerialName("placement_accuracy_m") val placementAccuracyMeters: Float? = null,
     @SerialName("placement_location_timestamp") val placementLocationTimestamp: String? = null,
-    @SerialName("placement_location_provider") val placementLocationProvider: String? = null
+    @SerialName("placement_location_provider") val placementLocationProvider: String? = null,
+    @SerialName("spatial_anchor") val spatialAnchor: SpatialAnchor? = null
 )
